@@ -1,0 +1,55 @@
+name: alfa-course-recsys
+
+services:
+  postgres:
+    image: postgres:17.11-bookworm
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -h 127.0.0.1 -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  db-restore:
+    image: postgres:17.11-bookworm
+    entrypoint: [bash, /restore/restore.sh]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      PGCONNECT_TIMEOUT: "5"
+    volumes:
+      - type: bind
+        source: ./deploy/postgres
+        target: /restore
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${POSTGRES_BACKUP_PATH:-./data/alfa_course_hackathon.backup}
+        target: /backups/source.backup
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    read_only: true
+
+volumes:
+  postgres_data:
