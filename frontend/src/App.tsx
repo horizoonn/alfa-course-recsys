@@ -23,9 +23,6 @@ export default function App() {
   const [result, setResult] = useState<RecommendationsResponse | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [lastRequest, setLastRequest] = useState<LastRequest | null>(null);
-
-  // Справочники и демо-профили (P01–P10). Демо-профили необязательны —
-  // их отсутствие не ломает основной сценарий.
   useEffect(() => {
     let cancelled = false;
     Promise.all([fetchMeta(), fetchDemoProfiles().catch(() => [])])
@@ -102,6 +99,8 @@ export default function App() {
     <ProfileForm
       meta={meta}
       demoProfiles={demoProfiles}
+      initialProfile={lastRequest?.profile}
+      initialDemoProfileId={lastRequest?.demoProfileId}
       loading={submitting}
       error={requestError}
       onSubmit={submit}

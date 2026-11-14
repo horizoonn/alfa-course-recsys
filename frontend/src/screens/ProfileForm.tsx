@@ -7,6 +7,8 @@ import { useTelegram } from '../hooks/useTelegram';
 interface Props {
   meta: MetaResponse;
   demoProfiles: DemoProfile[];
+  initialProfile?: Profile;
+  initialDemoProfileId?: string;
   loading: boolean;
   error: string | null;
   onSubmit: (profile: Profile, demoProfileId?: string) => void;
@@ -14,23 +16,35 @@ interface Props {
 
 const NOT_SET = '';
 
-export default function ProfileForm({ meta, demoProfiles, loading, error, onSubmit }: Props) {
+export default function ProfileForm({
+  meta,
+  demoProfiles,
+  initialProfile,
+  initialDemoProfileId,
+  loading,
+  error,
+  onSubmit,
+}: Props) {
   const { userName } = useTelegram();
-  const [profile, setProfile] = useState<Profile>({});
-  const [demoProfileId, setDemoProfileId] = useState<string>(NOT_SET);
+  const initialDemo = demoProfiles.find((demo) => demo.id === initialDemoProfileId);
+  const [profile, setProfile] = useState<Profile>(() => ({
+    ...(initialDemo?.profile ?? initialProfile ?? {}),
+  }));
+  const [demoProfileId, setDemoProfileId] = useState(initialDemo?.id ?? NOT_SET);
 
   const update =
     (field: keyof Profile) =>
     (e: ChangeEvent<HTMLSelectElement>) => {
       const value = e.target.value || null;
+      setDemoProfileId(NOT_SET);
       setProfile((p) => ({ ...p, [field]: value }));
     };
 
   const handleDemoChange = (e: ChangeEvent<HTMLSelectElement>) => {
-    setDemoProfileId(e.target.value);
+    const demo = demoProfiles.find((item) => item.id === e.target.value);
+    setDemoProfileId(demo?.id ?? NOT_SET);
+    if (demo) setProfile({ ...demo.profile });
   };
-
-  // profile и demo_profile_id одновременно не передаются (контракт API).
   const submit = () => {
     if (demoProfileId) {
       onSubmit({}, demoProfileId);
@@ -40,7 +54,6 @@ export default function ProfileForm({ meta, demoProfiles, loading, error, onSubm
   };
 
   const skipAll = () => {
-    // R3: холодный старт — можно пропустить все поля.
     setProfile({});
     setDemoProfileId(NOT_SET);
     onSubmit({});
@@ -53,7 +66,7 @@ export default function ProfileForm({ meta, demoProfiles, loading, error, onSubm
   ) => (
     <label className="field">
       <span className="field-label">{label}</span>
-      <select value={profile[field] ?? NOT_SET} onChange={update(field)}>
+      <select value={profile[field] ?? NOT_SET} onChange={update(field)} disabled={loading}>
         <option value={NOT_SET}>Не указано</option>
         {options.map((o) => (
           <option key={o.id} value={o.id}>
@@ -84,7 +97,7 @@ export default function ProfileForm({ meta, demoProfiles, loading, error, onSubm
           <h2 className="section-title">Проверка на демо-профилях</h2>
           <label className="field">
             <span className="field-label">Профиль P01–P10</span>
-            <select value={demoProfileId} onChange={handleDemoChange}>
+            <select value={demoProfileId} onChange={handleDemoChange} disabled={loading}>
               <option value={NOT_SET}>Свой ввод</option>
               {demoProfiles.map((p) => (
                 <option key={p.id} value={p.id}>

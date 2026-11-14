@@ -227,7 +227,8 @@ select {
   color: var(--free);
 }
 
-.access-paid {
+.access-paid,
+.access-subscription {
   background: rgba(217, 119, 6, 0.12);
   color: var(--paid);
 }

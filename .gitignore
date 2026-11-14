@@ -1,34 +1,36 @@
-# Case documentation - not published to repo
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+*.test
+
+*.out
+coverage.*
+!coverage.go
+*.coverprofile
+profile.cov
+
+go.work
+go.work.sum
+
+.env
+
+*.backup
+
 dockuments/
-
-# Dependencies
 node_modules/
-
-# Build output
 dist/
 build/
-
-# Local env files with secrets
-.env
 .env.local
 .env.*.local
-
-# Tokens and keys
 *.pem
 *.key
-
-# Local server and tunnel logs
 *.log
-
-# Database dumps - case forbids publishing
-*.backup
 *.dump
 *.bak
-
-# Local test screenshots
 screenshots/
-
-# System files
 Thumbs.db
 .DS_Store
 desktop.ini

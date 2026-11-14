@@ -1,10 +1,6 @@
-// Контракты соответствуют документу Alfa_Course_MVP_Developers_v0_2.docx, раздел 5.
-// Названия полей — это поля нового API, а не исходной БД.
-
 export type HelpModeId = 'quick_answer' | 'tool' | 'deep_learning';
 
 export interface Profile {
-  /** Неизвестное значение передаётся как null, а не как догадка. */
   stage?: string | null;
   industry?: string | null;
   task_id?: string | null;
@@ -12,27 +8,68 @@ export interface Profile {
   help_mode?: string | null;
 }
 
-export type AccessType = 'free' | 'paid' | 'unknown';
+export type AccessType = 'free' | 'subscription' | 'paid' | 'unknown';
+
+export type MaterialKind =
+  | 'article'
+  | 'course'
+  | 'document'
+  | 'term'
+  | 'calculator'
+  | 'podcast'
+  | 'webinar';
 
 export type RecMode = 'personalized' | 'topic' | 'starter' | 'fallback';
+
+export type ReasonCode =
+  | 'task_match'
+  | 'help_mode_match'
+  | 'stage_match'
+  | 'experience_match'
+  | 'industry_match'
+  | 'history_match'
+  | 'general_selection'
+  | 'broader_topic';
+
+export interface RecommendationReason {
+  code: ReasonCode;
+  text: string;
+}
+
+export interface NextAction {
+  type: 'open_material' | 'open_purchase' | 'refine_request';
+  label: string;
+}
 
 export interface MaterialCard {
   material_key: string;
   title: string;
-  type: string;
-  safe_summary: string;
+  type: MaterialKind;
+  safe_summary: string | null;
   access: AccessType;
-  /** null, если предоставленный URL отсутствует — адрес не выдумываем. */
   source_url: string | null;
-  /** Причины формируются только из реально сработавших признаков. */
-  reasons: string[];
-  next_action: string;
+  reasons: RecommendationReason[];
+  next_action: NextAction;
 }
+
+export interface Limitation {
+  code:
+    | 'HISTORY_UNAVAILABLE'
+    | 'BROADER_TOPIC'
+    | 'URL_UNVERIFIED'
+    | 'NO_MATCHES'
+    | 'PROFILE_INCOMPLETE';
+  message: string;
+}
+
+export type RecommendationsRequest =
+  | { profile?: Profile; demo_profile_id?: never; limit?: number }
+  | { demo_profile_id: string; profile?: never; limit?: number };
 
 export interface RecommendationsResponse {
   items: MaterialCard[];
   mode: RecMode;
-  limitations?: string;
+  limitations: Limitation[];
   request_id: string;
 }
 
@@ -57,6 +94,10 @@ export interface DemoProfile {
 }
 
 export interface ApiErrorResponse {
-  code: string;
-  message: string;
+  request_id: string;
+  error: {
+    code: 'INVALID_INPUT' | 'DATA_UNAVAILABLE' | 'INTERNAL_ERROR';
+    message: string;
+    fields: { field: string; message: string }[];
+  };
 }

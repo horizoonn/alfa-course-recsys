@@ -23,15 +23,14 @@ export default function Results({ result, loading, error, onRetry, onChangeReque
   }
 
   if (error) {
-    // Ошибка API не маскируется под пустой результат.
     return <ErrorState message={error} onRetry={onRetry} onChangeRequest={onChangeRequest} />;
   }
 
   if (result.items.length === 0) {
-    // P09: честное пустое состояние, без выдуманных карточек.
+    const message = result.limitations.map((limitation) => limitation.message).join(' ');
     return (
       <EmptyState
-        message={result.limitations ?? 'Подходящих материалов не нашлось. Измените запрос.'}
+        message={message || 'Подходящих материалов не нашлось. Измените запрос.'}
         onChangeRequest={onChangeRequest}
       />
     );
@@ -49,12 +48,22 @@ export default function Results({ result, loading, error, onRetry, onChangeReque
         <div className="mode-badge" data-mode={result.mode}>
           {modeLabel}
         </div>
-        {result.limitations && <p className="hint">{result.limitations}</p>}
+        {result.limitations.length > 0 && (
+          <ul className="hint">
+            {result.limitations.map((limitation) => (
+              <li key={limitation.code}>{limitation.message}</li>
+            ))}
+          </ul>
+        )}
       </header>
 
       <div className="cards">
         {result.items.map((item) => (
-          <MaterialCardView key={item.material_key} item={item} />
+          <MaterialCardView
+            key={item.material_key}
+            item={item}
+            onRefineRequest={onChangeRequest}
+          />
         ))}
       </div>
     </div>

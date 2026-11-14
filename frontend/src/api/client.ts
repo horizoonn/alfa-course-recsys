@@ -1,13 +1,15 @@
 import type {
+  ApiErrorResponse,
   DemoProfile,
   MetaResponse,
   Profile,
+  RecommendationsRequest,
   RecommendationsResponse,
 } from '../types';
 import { mockDemoProfiles, mockMeta, mockRecommendations } from './mock';
 
 export const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
-const BASE = import.meta.env.VITE_API_BASE ?? '/api';
+const BASE = (import.meta.env.VITE_API_BASE ?? '/api').replace(/\/+$/, '');
 
 export class ApiError extends Error {
   constructor(
@@ -21,7 +23,7 @@ export class ApiError extends Error {
 }
 
 function delay(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -29,23 +31,18 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   try {
     res = await fetch(url, init);
   } catch {
-    // Сетевой сбой не маскируем под «нет совпадений».
     throw new ApiError('NETWORK_ERROR', 'Сервис недоступен. Проверьте соединение и повторите запрос.');
   }
   if (!res.ok) {
-    let code = 'REQUEST_FAILED';
-    let message = 'Ошибка запроса. Повторите попытку позже.';
+    let code = res.status === 503 ? 'DATA_UNAVAILABLE' : 'REQUEST_FAILED';
+    let message = res.status === 503
+      ? 'Сервис временно недоступен. Повторите запрос позже.'
+      : 'Ошибка запроса. Повторите попытку позже.';
     try {
-      const body = (await res.json()) as { code?: string; message?: string };
-      if (body.code) code = body.code;
-      if (body.message) message = body.message;
-    } catch {
-      // тело не JSON — оставляем дефолтные тексты
-    }
-    if (res.status === 503) {
-      code = code === 'REQUEST_FAILED' ? 'DATA_UNAVAILABLE' : code;
-      message = 'База данных временно недоступна. Повторите запрос позже.';
-    }
+      const body = (await res.json()) as Partial<ApiErrorResponse>;
+      if (typeof body.error?.code === 'string') code = body.error.code;
+      if (typeof body.error?.message === 'string') message = body.error.message;
+    } catch {}
     throw new ApiError(code, message, res.status);
   }
   return (await res.json()) as T;
@@ -67,17 +64,13 @@ export async function fetchDemoProfiles(): Promise<DemoProfile[]> {
   return requestJson<DemoProfile[]>(`${BASE}/demo-profiles`);
 }
 
-/**
- * profile и demo_profile_id одновременно не передаются — так требует контракт
- * (POST /api/recommendations). Отправляем только одно из двух.
- */
 export async function fetchRecommendations(
   profile: Profile,
   demoProfileId?: string,
 ): Promise<RecommendationsResponse> {
   if (USE_MOCK) return mockRecommendations(profile, demoProfileId);
 
-  const body: Record<string, unknown> = demoProfileId ? { demo_profile_id: demoProfileId } : { profile };
+  const body: RecommendationsRequest = demoProfileId ? { demo_profile_id: demoProfileId } : { profile };
   return requestJson<RecommendationsResponse>(`${BASE}/recommendations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
