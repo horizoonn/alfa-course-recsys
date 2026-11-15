@@ -41,3 +41,5 @@ data/ranking_*.json
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+# Case documentation - not published
+dockuments/
