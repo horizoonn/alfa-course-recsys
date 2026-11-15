@@ -10,6 +10,9 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       host: true,
+      // Разрешаем внешние домены туннелей (localhost.run, cloudflared и т.п.),
+      // иначе Vite отвечает "Blocked request. This host is not allowed".
+      allowedHosts: true,
       proxy: {
         '/api': {
           target: env.VITE_PROXY_TARGET || `http://127.0.0.1:${rootEnv.APP_PORT || '8080'}`,
