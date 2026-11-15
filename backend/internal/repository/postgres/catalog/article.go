@@ -40,6 +40,7 @@ func (r *Repository) loadArticleRows(ctx context.Context) ([]model.Article, erro
 			a."SubjectId",
 			a."Title",
 			a."Description",
+			a."Content",
 			a."CardDescription",
 			a."TitleTag",
 			a."DescriptionTag",

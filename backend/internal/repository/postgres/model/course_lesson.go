@@ -18,6 +18,8 @@ type CourseLesson struct {
 	ClosedUntil         *time.Time
 	Title               string
 	Description         *string
+	ContentHTML         *string
+	Blocks              []ContentBlock
 	NavigationTitle     *string
 	DurationText        *string
 	IsGroup             bool
@@ -42,6 +44,7 @@ func (lesson *CourseLesson) Scan(row pgx.Row) error {
 		&lesson.ClosedUntil,
 		&lesson.Title,
 		&lesson.Description,
+		&lesson.ContentHTML,
 		&lesson.NavigationTitle,
 		&lesson.DurationText,
 		&lesson.IsGroup,

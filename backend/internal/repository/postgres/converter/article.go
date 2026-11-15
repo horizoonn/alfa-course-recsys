@@ -11,19 +11,15 @@ import (
 
 func ArticleToMaterial(data model.ArticleData) (domain.Material, error) {
 	article := data.Article
-	fragments, err := contentFragments(
-		article.ID,
-		data.Blocks,
-		contentTextBlock,
-		contentNoteBlock,
-		contentQuoteBlock,
-		contentListBlock,
-		contentDetailsBlock,
-	)
+	fragments, err := contentFragments(article.ID, data.Blocks)
 	if err != nil {
 		return domain.Material{}, fmt.Errorf("article %s: fragments: %w", article.ID, err)
 	}
 
+	content, err := optionalHTMLToText(article.ContentHTML)
+	if err != nil {
+		return domain.Material{}, fmt.Errorf("article %s: content: %w", article.ID, err)
+	}
 	headings, err := articleHeadings(article.HeadingsJSON)
 	if err != nil {
 		return domain.Material{}, fmt.Errorf("article %s: headings: %w", article.ID, err)
@@ -34,6 +30,7 @@ func ArticleToMaterial(data model.ArticleData) (domain.Material, error) {
 
 	metadata := domain.MaterialMetadata{
 		Fragments: fragments,
+		Content:   content,
 		Category: &domain.Label{
 			ID:    article.SubjectID,
 			Title: normalizeText(article.SubjectTitle),

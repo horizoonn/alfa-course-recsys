@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"uuid"
 
@@ -11,33 +12,14 @@ import (
 	"github.com/horizoonn/alfa-course-recsys/backend/internal/repository/postgres/model"
 )
 
-const (
-	contentTextBlock    int32 = 0
-	contentNoteBlock    int32 = 2
-	contentQuoteBlock   int32 = 3
-	contentListBlock    int32 = 4
-	contentDetailsBlock int32 = 13
-)
-
 func contentFragments(
 	entityID uuid.UUID,
 	blocks []model.ContentBlock,
-	allowedTypes ...int32,
 ) ([]domain.ContentFragment, error) {
 	result := make([]domain.ContentFragment, 0, len(blocks))
 	for _, block := range blocks {
 		if block.EntityID != entityID {
 			return nil, fmt.Errorf("block %s belongs to another material", block.ID)
-		}
-		allowed := false
-		for _, kind := range allowedTypes {
-			if kind == block.Type {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			continue
 		}
 		text, err := contentBlockText(block)
 		if err != nil {
@@ -45,6 +27,7 @@ func contentFragments(
 		}
 		if text != "" {
 			result = append(result, domain.ContentFragment{
+				Role:     contentRole(block),
 				ID:       block.ID,
 				Position: block.Position,
 				Text:     text,
@@ -69,81 +52,64 @@ func decodeBlockParams(value *string, target any) error {
 }
 
 func contentBlockText(block model.ContentBlock) (string, error) {
-	if block.Type == contentTextBlock {
-		text, err := optionalHTMLToText(block.HTML)
-		if text == nil || err != nil {
-			return "", err
-		}
-		return *text, nil
-	}
 	parts := []string{}
-	add := func(value *string) error {
-		text, err := optionalHTMLToText(value)
+	add := func(value string) error {
+		text, err := htmlToText(value)
 		if err != nil {
 			return err
 		}
-		if text != nil {
-			parts = append(parts, *text)
+		if text != "" {
+			parts = append(parts, text)
 		}
 		return nil
 	}
-	switch block.Type {
-	case contentNoteBlock:
-		var params struct{ Title, Description *string }
-		if err := decodeBlockParams(block.ParamsJSON, &params); err != nil {
+	if block.HTML != nil {
+		if err := add(*block.HTML); err != nil {
 			return "", err
 		}
-		if err := add(params.Title); err != nil {
-			return "", err
-		}
-		if err := add(params.Description); err != nil {
-			return "", err
-		}
-	case contentQuoteBlock:
-		var params struct{ Text, Alt *string }
-		if err := decodeBlockParams(block.ParamsJSON, &params); err != nil {
-			return "", err
-		}
-		if err := add(params.Text); err != nil {
-			return "", err
-		}
-		if err := add(params.Alt); err != nil {
-			return "", err
-		}
-	case contentListBlock:
-		var params struct {
-			Title *string
-			Items []*string
-		}
-		if err := decodeBlockParams(block.ParamsJSON, &params); err != nil {
-			return "", err
-		}
-		if err := add(params.Title); err != nil {
-			return "", err
-		}
-		for i, item := range params.Items {
-			if item == nil {
-				return "", fmt.Errorf("list item %d: expected a string", i)
-			}
-			if err := add(item); err != nil {
-				return "", err
-			}
-		}
-	case contentDetailsBlock:
-		var params struct{ Title, Text *string }
-		if err := decodeBlockParams(block.ParamsJSON, &params); err != nil {
-			return "", err
-		}
-		if err := add(params.Title); err != nil {
-			return "", err
-		}
-		if err := add(params.Text); err != nil {
-			return "", err
-		}
-	default:
-		return "", nil
 	}
-	return strings.Join(parts, "\n\n"), nil
+	if block.ParamsJSON != nil {
+		var object map[string]any
+		if err := decodeBlockParams(block.ParamsJSON, &object); err != nil {
+			return "", err
+		}
+		var visit func(any, bool) error
+		visit = func(value any, readable bool) error {
+			switch item := value.(type) {
+			case string:
+				if readable {
+					return add(item)
+				}
+			case []any:
+				for _, value := range item {
+					if err := visit(value, readable); err != nil {
+						return err
+					}
+				}
+			case map[string]any:
+				keys := make([]string, 0, len(item))
+				for key := range item {
+					keys = append(keys, key)
+				}
+				slices.Sort(keys)
+				for _, key := range keys {
+					text := false
+					switch strings.ToLower(key) {
+					case "title", "description", "text", "alt", "caption", "content", "question", "answer", "items", "label", "name", "filename":
+						text = true
+					}
+					if err := visit(item[key], text); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}
+		if err := visit(object, false); err != nil {
+			return "", err
+		}
+	}
+	return joinNormalizedText(parts...), nil
 }
 
 func appendSearchFragments(
@@ -159,4 +125,46 @@ func appendSearchFragments(
 		parts = append(parts, fragment.Text)
 	}
 	return parts
+}
+
+func contentRole(block model.ContentBlock) domain.ContentRole {
+	var params map[string]any
+	if block.ParamsJSON != nil {
+		_ = json.Unmarshal([]byte(*block.ParamsJSON), &params)
+	}
+	var promoted func(any) bool
+	promoted = func(value any) bool {
+		switch item := value.(type) {
+		case map[string]any:
+			for key, child := range item {
+				switch strings.ToLower(key) {
+				case "advcode", "productcode", "metrictarget":
+					if text, ok := child.(string); ok && strings.TrimSpace(text) != "" {
+						return true
+					}
+				}
+				if promoted(child) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range item {
+				if promoted(child) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if promoted(params) {
+		return domain.ContentRolePromotion
+	}
+	switch block.Type {
+	case 1, 5, 7:
+		return domain.ContentRoleCaption
+	case 8:
+		return domain.ContentRoleReference
+	default:
+		return domain.ContentRoleBody
+	}
 }

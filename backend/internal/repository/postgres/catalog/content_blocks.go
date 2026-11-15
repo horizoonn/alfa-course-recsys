@@ -58,3 +58,12 @@ func (r *Repository) loadContentBlocks(
 	}
 	return blocks, nil
 }
+
+func (r *Repository) loadLessonBlocks(ctx context.Context, ids []uuid.UUID) ([]model.ContentBlock, error) {
+	const query = `
+ SELECT "Id", "LessonId", "Type", "HtmlContent", "Params", "Order"
+ FROM public."LessonEmbedItems"
+ WHERE "LessonId" = ANY($1::uuid[])
+ ORDER BY "LessonId", "Order" NULLS LAST, "Id"`
+	return r.loadContentBlocks(ctx, ids, query, "lesson")
+}

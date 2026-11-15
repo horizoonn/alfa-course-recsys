@@ -10,6 +10,7 @@ type MaterialMetadata struct {
 	Category               *Label
 	AdditionalLabels       []Label
 	Description            *string
+	Content                *string
 	AdditionalDescription  *string
 	CardDescription        *string
 	AlternativeTitle       *string
@@ -31,6 +32,9 @@ func (m MaterialMetadata) Validate() error {
 	}
 	if err := validateLabel(m.AdditionalLabels); err != nil {
 		return fmt.Errorf("additional labels: %w", err)
+	}
+	if m.Content != nil && strings.TrimSpace(*m.Content) == "" {
+		return errors.New("content must be nonempty or nil")
 	}
 	if m.Description != nil && strings.TrimSpace(*m.Description) == "" {
 		return errors.New("description must be nonempty or nil")

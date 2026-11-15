@@ -195,3 +195,19 @@ func validateTimestamp(value time.Time) error {
 	}
 	return nil
 }
+
+func ParseMaterialKey(value string) (MaterialKey, error) {
+	kind, identifier, ok := strings.Cut(value, ":")
+	if !ok {
+		return MaterialKey{}, errors.New("material key must be kind:uuid")
+	}
+	id, err := uuid.Parse(identifier)
+	if err != nil {
+		return MaterialKey{}, errors.New("invalid material UUID")
+	}
+	key := MaterialKey{Kind: MaterialKind(kind), ID: id}
+	if err := key.Validate(); err != nil {
+		return MaterialKey{}, err
+	}
+	return key, nil
+}

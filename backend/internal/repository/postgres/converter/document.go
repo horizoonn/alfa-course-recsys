@@ -10,7 +10,7 @@ import (
 
 func DocumentToMaterial(data model.DocumentData) (domain.Material, error) {
 	document := data.Document
-	fragments, err := contentFragments(document.ID, data.Blocks, contentTextBlock)
+	fragments, err := contentFragments(document.ID, data.Blocks)
 	if err != nil {
 		return domain.Material{}, fmt.Errorf("document %s: fragments: %w", document.ID, err)
 	}

@@ -43,8 +43,22 @@ func courseProgram(
 		slices.SortFunc(children[id], compareCourseLessons)
 	}
 	result := make([]domain.CourseProgramItem, 0, len(lessons))
+	var contentErr error
 	var visit func(model.CourseLesson, domain.Visibility)
 	visit = func(lesson model.CourseLesson, parentVisibility domain.Visibility) {
+		if contentErr != nil {
+			return
+		}
+		content, err := optionalHTMLToText(lesson.ContentHTML)
+		if err != nil {
+			contentErr = err
+			return
+		}
+		fragments, err := contentFragments(lesson.LessonID, lesson.Blocks)
+		if err != nil {
+			contentErr = err
+			return
+		}
 		description := normalizeOptionalText(lesson.Description)
 		title := normalizeText(lesson.Title)
 		parts := []string{title}
@@ -65,6 +79,8 @@ func courseProgram(
 			Title:            title,
 			NavigationTitle:  normalizeOptionalText(lesson.NavigationTitle),
 			Description:      description,
+			Content:          content,
+			Fragments:        fragments,
 			SearchText:       joinNormalizedText(parts...),
 			IsGroup:          lesson.IsGroup,
 			Duration:         materialDuration(lesson.DurationText),
@@ -90,6 +106,9 @@ func courseProgram(
 	}
 	for _, root := range roots {
 		visit(root, courseVisibility(course))
+	}
+	if contentErr != nil {
+		return nil, fmt.Errorf("course program content: %w", contentErr)
 	}
 	if len(result) != len(lessons) {
 		return nil, fmt.Errorf("course program contains a cycle")

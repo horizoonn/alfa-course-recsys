@@ -6,7 +6,17 @@ import (
 	"uuid"
 )
 
+type ContentRole string
+
+const (
+	ContentRoleBody      ContentRole = "body"
+	ContentRoleCaption   ContentRole = "caption"
+	ContentRolePromotion ContentRole = "promotion"
+	ContentRoleReference ContentRole = "reference"
+)
+
 type ContentFragment struct {
+	Role     ContentRole
 	ID       uuid.UUID
 	Position *int32
 	Text     string
@@ -24,6 +34,11 @@ func validateContentFragments(fragments []ContentFragment) error {
 		}
 		if _, exists := seen[fragment.ID]; exists {
 			return fmt.Errorf("fragment %d: duplicate ID %s", i, fragment.ID)
+		}
+		switch fragment.Role {
+		case "", ContentRoleBody, ContentRoleCaption, ContentRolePromotion, ContentRoleReference:
+		default:
+			return fmt.Errorf("fragment %d: unsupported role %q", i, fragment.Role)
 		}
 		seen[fragment.ID] = struct{}{}
 	}

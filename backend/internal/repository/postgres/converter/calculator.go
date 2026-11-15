@@ -65,7 +65,7 @@ func CalculatorToMaterial(data model.CalculatorData) (domain.Material, error) {
 	if reference != calculator.ID {
 		return domain.Material{}, fmt.Errorf("calculator %s: page %s references calculator %s", calculator.ID, page.ID, reference)
 	}
-	fragments, err := contentFragments(page.ID, data.Blocks, contentTextBlock, contentNoteBlock)
+	fragments, err := contentFragments(page.ID, data.Blocks)
 	if err != nil {
 		return domain.Material{}, fmt.Errorf("calculator %s: fragments: %w", calculator.ID, err)
 	}

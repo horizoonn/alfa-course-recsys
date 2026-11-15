@@ -15,6 +15,8 @@ type CourseProgramItem struct {
 	Title            string
 	NavigationTitle  *string
 	Description      *string
+	Content          *string
+	Fragments        []ContentFragment
 	SearchText       string
 	IsGroup          bool
 	Format           *Label
@@ -99,6 +101,9 @@ func (item CourseProgramItem) Validate() error {
 		if err := validateTimestamp(*item.ClosedUntil); err != nil {
 			return fmt.Errorf("closed until: %w", err)
 		}
+	}
+	if err := validateContentFragments(item.Fragments); err != nil {
+		return err
 	}
 	return validateTimestamp(item.SourceModifiedAt)
 }

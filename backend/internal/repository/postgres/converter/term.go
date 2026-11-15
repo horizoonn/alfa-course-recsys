@@ -9,14 +9,7 @@ import (
 
 func TermToMaterial(data model.TermData) (domain.Material, error) {
 	term := data.Term
-	fragments, err := contentFragments(
-		term.ID,
-		data.Blocks,
-		contentTextBlock,
-		contentNoteBlock,
-		contentListBlock,
-		contentDetailsBlock,
-	)
+	fragments, err := contentFragments(term.ID, data.Blocks)
 	if err != nil {
 		return domain.Material{}, fmt.Errorf("term %s: fragments: %w", term.ID, err)
 	}

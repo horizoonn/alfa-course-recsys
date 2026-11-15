@@ -14,6 +14,7 @@ type Article struct {
 	SubjectID              uuid.UUID
 	Title                  string
 	Description            *string
+	ContentHTML            *string
 	CardDescription        *string
 	AlternativeTitle       *string
 	AlternativeDescription *string
@@ -45,6 +46,7 @@ func (article *Article) Scan(row pgx.Row) error {
 		&article.SubjectID,
 		&article.Title,
 		&article.Description,
+		&article.ContentHTML,
 		&article.CardDescription,
 		&article.AlternativeTitle,
 		&article.AlternativeDescription,

@@ -39,8 +39,21 @@ func (r *Repository) loadCourseData(ctx context.Context) ([]model.CourseData, er
 	if err != nil {
 		return nil, fmt.Errorf("load course lessons: %w", err)
 	}
+	lessonIDs := make([]uuid.UUID, 0, len(lessons))
+	for _, lesson := range lessons {
+		lessonIDs = append(lessonIDs, lesson.LessonID)
+	}
+	blocks, err := r.loadLessonBlocks(ctx, lessonIDs)
+	if err != nil {
+		return nil, fmt.Errorf("load lesson blocks: %w", err)
+	}
+	byLesson := make(map[uuid.UUID][]model.ContentBlock)
+	for _, block := range blocks {
+		byLesson[block.EntityID] = append(byLesson[block.EntityID], block)
+	}
 	lessonsByCourse := make(map[uuid.UUID][]model.CourseLesson, len(courses))
 	for _, lesson := range lessons {
+		lesson.Blocks = byLesson[lesson.LessonID]
 		lessonsByCourse[lesson.CourseID] = append(lessonsByCourse[lesson.CourseID], lesson)
 	}
 

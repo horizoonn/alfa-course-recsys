@@ -31,6 +31,7 @@ func (r *Repository) loadCourseLessons(
 			binding."ClosedUntil",
 			lesson."Title",
 			lesson."Description",
+			lesson."Content",
 			lesson."TitleNavigation",
 			lesson."Duration",
 			lesson."IsGroup",
