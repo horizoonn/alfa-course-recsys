@@ -4,8 +4,16 @@
 // поэтому URL в BotFather вводить не нужно.
 //
 // Запуск:  npm start   (читает .env через node --env-file)
+//
+// Облачный запуск (Render/Railway): если задан PORT, поднимается минимальный
+// HTTP-сервер для health-check платформы. Нужен, потому что в некоторых сетях
+// (например, у части российских провайдеров) доступ к api.telegram.org закрыт,
+// и локальный long polling не работает — бот крутится в облаке.
+
+import http from 'node:http';
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
+const PORT = process.env.PORT ? Number(process.env.PORT) : null;
 const WEBAPP_URL = process.env.WEBAPP_URL ?? '';
 const MENU_TEXT = process.env.BOT_MENU_TEXT ?? 'Открыть Альфа Курс';
 
@@ -35,6 +43,37 @@ function isPublicHttps(url) {
     return !['localhost', '127.0.0.1', '0.0.0.0'].includes(parsed.hostname);
   } catch {
     return false;
+  }
+}
+
+async function checkTelegramReachable() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(`${API_BASE}/getMe`, { signal: controller.signal });
+    const data = await response.json();
+    if (!data.ok) {
+      console.error(`[bot] Telegram отклонил токен: ${data.description ?? response.status}`);
+      return false;
+    }
+    console.log(`[bot] подключён как @${data.result.username} (${data.result.first_name})`);
+    return true;
+  } catch {
+    console.error(
+      [
+        '[bot] нет доступа к api.telegram.org — бот не сможет получать сообщения.',
+        '',
+        'Причины и решения:',
+        '  1) Сеть блокирует Telegram (частая ситуация у российских провайдеров):',
+        '     включи VPN и запусти снова, либо',
+        '  2) Запусти бота в облаке (там блокировки нет): Render/Railway,',
+        '     команда запуска: npm start, переменные: BOT_TOKEN, WEBAPP_URL,',
+        '     переменную PORT платформа задаст сама.',
+      ].join('\n'),
+    );
+    return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -192,6 +231,22 @@ async function poll() {
 
 async function main() {
   console.log('[bot] запуск…');
+
+  // В облаке платформы ждут открытый порт для health-check.
+  if (PORT) {
+    http
+      .createServer((_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('alfa-course-bot: ok');
+      })
+      .listen(PORT, () => console.log(`[bot] health-check на порту ${PORT}`));
+  }
+
+  const reachable = await checkTelegramReachable();
+  if (!reachable && !PORT) {
+    console.error('[bot] остановлен: сначала реши проблему доступа к Telegram API.');
+    process.exit(1);
+  }
 
   // На случай, если у бота был настроен webhook — снимаем, чтобы работал polling.
   try {
