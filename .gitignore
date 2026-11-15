@@ -43,3 +43,4 @@ __pycache__/
 .ruff_cache/
 # Case documentation - not published
 dockuments/
+tmp/

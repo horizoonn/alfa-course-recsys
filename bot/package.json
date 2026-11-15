@@ -8,6 +8,6 @@
     "node": ">=20.6"
   },
   "scripts": {
-    "start": "node --env-file=.env index.js"
+    "start": "node index.js"
   }
 }

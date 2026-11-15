@@ -10,7 +10,32 @@
 // (например, у части российских провайдеров) доступ к api.telegram.org закрыт,
 // и локальный long polling не работает — бот крутится в облаке.
 
+import fs from 'node:fs';
 import http from 'node:http';
+
+// Загружаем .env вручную, если он есть (локальный запуск).
+// В облаке (Render/Railway) файла нет — переменные приходят из окружения.
+function loadDotEnv(path = '.env') {
+  if (!fs.existsSync(path)) return;
+  const text = fs.readFileSync(path, 'utf8');
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const eq = line.indexOf('=');
+    if (eq === -1) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (!(key in process.env)) process.env[key] = value;
+  }
+}
+
+loadDotEnv();
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const PORT = process.env.PORT ? Number(process.env.PORT) : null;
