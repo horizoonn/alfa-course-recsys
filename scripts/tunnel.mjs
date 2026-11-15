@@ -139,8 +139,29 @@ function resolveAdminConfig() {
   return { adminUrl, adminToken };
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Публикуем адрес только если он реально доходит до локального API.
+// Иначе в GitHub попадёт мёртвый адрес, и Render будет ходить в никуда.
+async function isTunnelAlive(url, attempts = 3) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetch(`${url}/api/health`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (response.ok) return true;
+    } catch {
+      // Первые секунды после подключения край туннеля может ещё не отвечать.
+    }
+    await sleep(1500);
+  }
+  return false;
+}
+
 function gitGit(args, cwd) {
-  return spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
+  return spawnSync('git', ['-c', `safe.directory=${cwd.replace(/\\/g, '/')}`, ...args], {
+    cwd, encoding: 'utf8', windowsHide: true, timeout: 30_000,
+  });
 }
 
 // Публикация адреса в ветку tunnel. Это основной канал: из локальной сети
@@ -200,7 +221,7 @@ function publishViaGit(url) {
 async function publish(adminUrl, adminToken, url) {
   const viaGit = publishViaGit(url);
   if (viaGit) {
-    info(`адрес опубликован в GitHub (ветка ${STATE_BRANCH}) — Render подхватит за минуту`);
+    info(`адрес опубликован в GitHub (ветка ${STATE_BRANCH}) — Render подхватит в течение двух минут`);
   }
 
   if (!adminUrl) {
@@ -273,6 +294,7 @@ async function checkRender(adminUrl, adminToken) {
 }
 
 function connect({ adminUrl, adminToken }) {
+  if (stopping) return;
   info(`подключаю 127.0.0.1:${PORT} -> localhost.run`);
 
   const child = spawn(
@@ -296,6 +318,7 @@ function connect({ adminUrl, adminToken }) {
     ],
     { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true },
   );
+  activeTunnel = child;
 
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
@@ -347,7 +370,14 @@ function connect({ adminUrl, adminToken }) {
         })();
         return;
       }
-      void publish(adminUrl, adminToken, url);
+      void (async () => {
+        if (!(await isTunnelAlive(url))) {
+          info('адрес выдан, но до API не доходит — не публикую');
+          return;
+        }
+        info('туннель проверен: API отвечает');
+        await publish(adminUrl, adminToken, url);
+      })();
     }
     if (buffer.length > 2000) buffer = '';
   };
@@ -367,7 +397,7 @@ function connect({ adminUrl, adminToken }) {
   });
 
   child.on('exit', (code) => {
-    if (spawnFailed || PROBE) return;
+    if (spawnFailed || PROBE || stopping) return;
     info(`соединение закрыто (код ${code ?? '?'}), переподключаюсь через 3 с`);
     setTimeout(() => connect({ adminUrl, adminToken }), RECONNECT_DELAY_MS);
   });
@@ -380,6 +410,9 @@ function connect({ adminUrl, adminToken }) {
     }, PROBE_TIMEOUT_MS);
   }
 }
+
+let activeTunnel = null;
+let stopping = false;
 
 async function main() {
   if (!fs.existsSync(path.join(ROOT, 'bot'))) {
@@ -394,6 +427,8 @@ async function main() {
   await checkRender(config.adminUrl, config.adminToken);
 
   const shutdown = () => {
+    stopping = true;
+    activeTunnel?.kill();
     info('остановка…');
     process.exit(0);
   };
@@ -406,7 +441,7 @@ async function main() {
     info(`работаю ${RUN_LIMIT_SECONDS} с, затем выйду (--seconds)`);
     setTimeout(() => {
       info('время вышло, завершаюсь');
-      process.exit(0);
+      shutdown();
     }, RUN_LIMIT_SECONDS * 1000).unref();
   }
 }

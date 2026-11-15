@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import ProfileForm from './screens/ProfileForm';
 import Results from './screens/Results';
 import { ErrorState, LoadingState } from './components/StatusStates';
@@ -9,7 +9,6 @@ import {
   fetchMeta,
   fetchRecommendations,
 } from './api/client';
-import { mockDemoProfiles, mockMeta, mockRecommendations } from './api/mock';
 import type { DemoProfile, MetaResponse, Profile, RecommendationsResponse } from './types';
 import { useTelegram } from './hooks/useTelegram';
 
@@ -21,12 +20,11 @@ interface LastRequest {
 }
 
 export default function App() {
-  const { haptic, notify } = useTelegram();
+  const { webApp, haptic, notify } = useTelegram();
   const [meta, setMeta] = useState<MetaResponse | null>(null);
   const [demoProfiles, setDemoProfiles] = useState<DemoProfile[]>([]);
   const [bootError, setBootError] = useState<string | null>(null);
-  // Сообщение о переходе на демонстрационные данные (бэкенд недоступен).
-  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
+  const inFlight = useRef(false);
   const [view, setView] = useState<View>('form');
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<RecommendationsResponse | null>(null);
@@ -45,17 +43,7 @@ export default function App() {
         const message =
           e instanceof ApiError ? e.message : 'Не удалось загрузить справочники.';
 
-        if (USE_MOCK) {
-          setBootError(message);
-          return;
-        }
-
-        // Бэкенд не поднят/недоступен: не показываем тупик, а работаем на демо-данных.
-        setMeta(mockMeta);
-        setDemoProfiles(mockDemoProfiles);
-        setFallbackNotice(
-          `${message} Показаны демонстрационные данные — интерфейс и сценарий полностью работоспособны.`,
-        );
+        setBootError(message);
       });
     return () => {
       cancelled = true;
@@ -64,6 +52,8 @@ export default function App() {
 
   const submit = useCallback(
     async (profile: Profile, demoProfileId?: string) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
       haptic('medium');
       setSubmitting(true);
       setRequestError(null);
@@ -75,24 +65,10 @@ export default function App() {
         notify(res.items.length === 0 ? 'warning' : 'success');
       } catch (e: unknown) {
         const apiError = e instanceof ApiError ? e : null;
-        const backendDown =
-          apiError !== null &&
-          (apiError.code === 'NETWORK_ERROR' || apiError.code === 'DATA_UNAVAILABLE');
-
-        if (!USE_MOCK && backendDown) {
-          // Бэкенд недоступен — выдаём демо-подборку, но честно помечаем это.
-          const fallback = await mockRecommendations(profile, demoProfileId);
-          setResult(fallback);
-          setView('results');
-          setFallbackNotice(
-            'Бэкенд недоступен — подборка сформирована на демонстрационных данных.',
-          );
-          notify('warning');
-        } else {
-          setRequestError(apiError ? apiError.message : 'Не удалось получить подборку.');
-          notify('error');
-        }
+        setRequestError(apiError ? apiError.message : 'Не удалось получить подборку.');
+        notify('error');
       } finally {
+        inFlight.current = false;
         setSubmitting(false);
       }
     },
@@ -108,9 +84,25 @@ export default function App() {
     setView('form');
   }, [haptic]);
 
-  const banner = fallbackNotice ? (
+  useEffect(() => {
+    const button = webApp?.BackButton;
+    if (!button || view !== 'results') return;
+    button.show();
+    button.onClick(backToForm);
+    return () => {
+      button.offClick(backToForm);
+      button.hide();
+    };
+  }, [webApp, view, backToForm]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [view]);
+
+  const banner = USE_MOCK ? (
     <div className="fallback-banner" role="status">
-      {fallbackNotice}
+      <strong>Демонстрационный режим</strong>
+      <p>Сейчас показаны примеры на учебных данных. Это не рекомендации из реального каталога.</p>
     </div>
   ) : null;
 
@@ -132,6 +124,7 @@ export default function App() {
           error={requestError}
           onRetry={retry}
           onChangeRequest={backToForm}
+          isDemo={USE_MOCK}
         />
       </>
     );

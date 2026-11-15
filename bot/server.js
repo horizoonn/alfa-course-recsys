@@ -124,6 +124,7 @@ export function createAppServer(options = {}) {
     return {
       ok: true,
       service: 'alfa-course',
+      revision: options.revision ?? process.env.RENDER_GIT_COMMIT ?? null,
       static_dir: staticDir,
       static_ready: hasStatic,
       api_target: state.apiTarget || null,
@@ -226,7 +227,7 @@ export function createAppServer(options = {}) {
       sendJson(res, 502, {
         error: 'api_target_not_configured',
         hint: 'Укажи API_TARGET (адрес туннеля к локальному API) или вызови POST /__admin/target.',
-        // Фронтенд на такой ответ показывает демо-данные и плашку про офлайн-режим.
+        // The production frontend shows an error and allows retrying the real API.
       });
       return;
     }

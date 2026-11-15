@@ -39,6 +39,7 @@ const { server } = createAppServer({
   staticDir: path.join(HERE, 'web'),
   apiTarget: UNREACHABLE,
   adminToken: TOKEN,
+  revision: 'smoke-test',
   log: silent,
 });
 
@@ -63,6 +64,7 @@ try {
   const healthJson = (await readJson(health)).json;
   check('GET /health = 200', health.status === 200);
   check('health сообщает о готовой статике', healthJson?.static_ready === true);
+  check('health сообщает версию размещённой сборки', healthJson?.revision === 'smoke-test');
   check('health отдаёт текущий API_TARGET', healthJson?.api_target === UNREACHABLE);
 
   // Сначала проверяем недоступный API (пока цель — заведомо закрытый порт),

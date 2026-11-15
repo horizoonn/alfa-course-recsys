@@ -8,6 +8,7 @@ interface Props {
   error: string | null;
   onRetry: () => void;
   onChangeRequest: () => void;
+  isDemo?: boolean;
 }
 
 const MODE_LABELS: Record<string, string> = {
@@ -17,7 +18,7 @@ const MODE_LABELS: Record<string, string> = {
   fallback: 'Общая подборка',
 };
 
-export default function Results({ result, loading, error, onRetry, onChangeRequest }: Props) {
+export default function Results({ result, loading, error, onRetry, onChangeRequest, isDemo = false }: Props) {
   if (loading) {
     return <LoadingState label="Подбираем материалы…" />;
   }
@@ -44,7 +45,9 @@ export default function Results({ result, loading, error, onRetry, onChangeReque
         <button className="back-link" onClick={onChangeRequest}>
           ← Изменить запрос
         </button>
-        <h1>Что подходит для следующего шага</h1>
+        <p className="eyebrow">Альфа Курс · {isDemo ? 'пример подборки' : 'ваш следующий шаг'}</p>
+        <h1>Есть с чего начать</h1>
+        <p className="subtitle">До трёх материалов по вашему запросу. Выберите то, что удобно изучить сейчас.</p>
         <div className="mode-badge" data-mode={result.mode}>
           {modeLabel}
         </div>
@@ -58,11 +61,13 @@ export default function Results({ result, loading, error, onRetry, onChangeReque
       </header>
 
       <div className="cards">
-        {result.items.map((item) => (
+        {result.items.map((item, index) => (
           <MaterialCardView
             key={item.material_key}
             item={item}
             onRefineRequest={onChangeRequest}
+            position={index + 1}
+            isDemo={isDemo}
           />
         ))}
       </div>

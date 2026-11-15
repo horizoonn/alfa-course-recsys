@@ -14,6 +14,12 @@ export interface TelegramHapticFeedback {
 }
 
 export interface TelegramWebApp {
+  BackButton?: {
+    show(): void;
+    hide(): void;
+    onClick(callback: () => void): void;
+    offClick(callback: () => void): void;
+  };
   ready(): void;
   expand(): void;
   close(): void;

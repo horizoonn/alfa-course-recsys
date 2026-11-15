@@ -184,3 +184,48 @@ test('content_match reason is rendered from the API text', () => {
   const html = renderCard({ ...card, reasons: [{ code: 'content_match', text: 'Содержание связано с выбранной задачей.' }] });
   assert.ok(html.includes('Содержание связано с выбранной задачей.'));
 });
+
+test('proxy 502/504 and backend 503 permit the unavailable-service flow', async (t) => {
+  stubFetch(t, async () => new Response('Bad gateway', { status: 502 }));
+  for (const status of [502, 503, 504]) {
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: 'api_unreachable' }), { status });
+    await assert.rejects(api.fetchRecommendations({}), (error) =>
+      api.isUnavailable(error) && error.status === status);
+  }
+  assert.equal(api.isUnavailable(new api.ApiError('INVALID_INPUT', 'Invalid', 400)), false);
+  assert.equal(api.isUnavailable(new api.ApiError('INTERNAL_ERROR', 'Failed', 500)), false);
+});
+
+test('malformed success payloads fail clearly instead of crashing the screen', async (t) => {
+  stubFetch(t, async () => new Response('<html>Proxy</html>', { status: 200 }));
+  await assert.rejects(api.fetchRecommendations({}), (error) => error.code === 'INVALID_RESPONSE');
+  globalThis.fetch = async () => new Response(JSON.stringify({ items: null }), { status: 200 });
+  await assert.rejects(api.fetchRecommendations({}), (error) => error.code === 'INVALID_RESPONSE');
+  globalThis.fetch = async () => new Response(JSON.stringify({ tasks: [] }), { status: 200 });
+  await assert.rejects(api.fetchMeta(), (error) => error.code === 'INVALID_RESPONSE');
+});
+
+test('a stalled request is aborted and can be retried', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  stubFetch(t, async (_url, { signal }) => new Promise((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+  }));
+  const pending = api.fetchRecommendations({});
+  const rejected = assert.rejects(pending, (error) =>
+    error.code === 'REQUEST_TIMEOUT' && api.isUnavailable(error));
+  t.mock.timers.tick(api.REQUEST_TIMEOUT_MS);
+  await rejected;
+  t.mock.timers.reset();
+  globalThis.fetch = async () => new Response(JSON.stringify(response), { status: 200 });
+  assert.deepEqual(await api.fetchRecommendations({}), response);
+});
+
+test('demo cards never send users to synthetic material links', () => {
+  const html = renderToStaticMarkup(React.createElement(Card, { item: card, isDemo: true, onRefineRequest() {} }));
+  assert.ok(!html.includes('href='));
+  assert.ok(html.includes('Пример материала'));
+});
+
+test('unsafe material URLs cannot become clickable links', () => {
+  assert.ok(!renderCard({ ...card, source_url: 'javascript:alert(1)' }).includes('href='));
+});

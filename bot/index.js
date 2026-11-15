@@ -16,6 +16,7 @@
 import fs from 'node:fs';
 
 import { createAppServer } from './server.js';
+import { readTunnelTarget } from './tunnel-state.mjs';
 
 // Загружаем .env вручную, если он есть (локальный запуск).
 // В облаке (Render/Railway) файла нет — переменные приходят из окружения.
@@ -59,9 +60,15 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
 // onrender.com недоступен, поэтому скрипт туннеля не может достучаться до
 // /__admin/target. Зато доступен github.com — скрипт пушит адрес в ветку
 // tunnel, а сервис читает файл отсюда (репозиторий публичный).
+// GitHub API отдаёт свежий файл сразу, а raw.githubusercontent кэширует его
+// на несколько минут — из-за этого сервис залипал на мёртвом адресе.
 const TUNNEL_STATE_URL =
   process.env.TUNNEL_STATE_URL ??
+  'https://api.github.com/repos/horizoonn/alfa-course-recsys/contents/bot/tunnel-url.txt?ref=tunnel';
+const TUNNEL_STATE_FALLBACK_URL =
   'https://raw.githubusercontent.com/horizoonn/alfa-course-recsys/tunnel/bot/tunnel-url.txt';
+// 2 минуты: 30 запросов в час — с запасом от лимита GitHub (60/час без токена).
+const TUNNEL_STATE_INTERVAL_MS = 120_000;
 
 const KEEPALIVE =
   process.env.KEEPALIVE === undefined
@@ -174,27 +181,23 @@ function noUrlHint() {
 function startTunnelStateSync(app) {
   if (!TUNNEL_STATE_URL) return;
 
+  let syncing = false;
   const tick = async () => {
+    if (syncing) return;
+    syncing = true;
     try {
-      const response = await fetch(`${TUNNEL_STATE_URL}?t=${Date.now()}`, {
-        signal: AbortSignal.timeout(15_000),
-        cache: 'no-store',
+      const url = await readTunnelTarget(TUNNEL_STATE_URL, {
+        fallbackUrl: process.env.TUNNEL_STATE_URL ? undefined : TUNNEL_STATE_FALLBACK_URL,
+        currentTarget: app.status().api_target,
       });
-      if (!response.ok) return;
-
-      const url = (await response.text()).trim().split(/\s+/)[0];
-      if (!/^https:\/\//i.test(url)) return;
-      if (url === app.status().api_target) return;
-
+      if (!url || url === app.status().api_target) return;
       app.setTarget(url);
       console.log(`[web] API_TARGET обновлён из GitHub: ${url}`);
-    } catch {
-      // Нет сети/файла ещё нет — просто пробуем позже.
-    }
+    } finally { syncing = false; }
   };
 
   void tick();
-  setInterval(tick, 60_000).unref();
+  setInterval(tick, TUNNEL_STATE_INTERVAL_MS).unref();
 }
 
 function startWebServer() {
