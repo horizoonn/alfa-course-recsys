@@ -126,5 +126,21 @@ services:
         condition: service_completed_successfully
     restart: "no"
 
+  frontend:
+    pull_policy: build
+    build: ./frontend
+    ports:
+      - "127.0.0.1:5173:80"
+    depends_on:
+      app:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1/health]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
 volumes:
   postgres_data:

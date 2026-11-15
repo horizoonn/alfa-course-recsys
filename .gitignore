@@ -18,22 +18,26 @@ go.work.sum
 .env
 
 *.backup
+
 /backend/internal/transport/http/generated/
 node_modules/
 dist/
 build/
+.env.local
+.env.*.local
 *.pem
 *.key
 *.log
 *.dump
 *.bak
+screenshots/
 Thumbs.db
 .DS_Store
 desktop.ini
 
 data/catalog_curation.json
+data/ranking_*.json
 .venv/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
-data/ranking_*.json
