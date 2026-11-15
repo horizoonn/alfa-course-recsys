@@ -5,6 +5,13 @@ export default defineConfig(({ mode }) => {
   const rootEnv = loadEnv(mode, '..', '');
   const env = loadEnv(mode, '.', 'VITE_');
 
+  const proxy = {
+    '/api': {
+      target: env.VITE_PROXY_TARGET || `http://127.0.0.1:${rootEnv.APP_PORT || '8080'}`,
+      changeOrigin: true,
+    },
+  };
+
   return {
     plugins: [react()],
     server: {
@@ -13,12 +20,15 @@ export default defineConfig(({ mode }) => {
       // Разрешаем внешние домены туннелей (localhost.run, cloudflared и т.п.),
       // иначе Vite отвечает "Blocked request. This host is not allowed".
       allowedHosts: true,
-      proxy: {
-        '/api': {
-          target: env.VITE_PROXY_TARGET || `http://127.0.0.1:${rootEnv.APP_PORT || '8080'}`,
-          changeOrigin: true,
-        },
-      },
+      proxy,
+    },
+    // Production-сборка через туннель: один бандл вместо десятков модулей dev-сервера,
+    // поэтому страница открывается быстро даже на медленном канале.
+    preview: {
+      port: 4173,
+      host: true,
+      allowedHosts: true,
+      proxy,
     },
   };
 });
