@@ -1,0 +1,13 @@
+generator:
+  filters:
+    path_regex: ^/api/(meta|demo-profiles|health|recommendations)$
+    methods: [get, post]
+  features:
+    disable:
+      - paths/client
+      - webhooks/client
+      - webhooks/server
+      - ogen/otel
+      - ogen/unimplemented
+    enable:
+      - server/response/validation

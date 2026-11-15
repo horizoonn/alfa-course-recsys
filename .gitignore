@@ -19,7 +19,7 @@ go.work.sum
 
 *.backup
 
-dockuments/
+/backend/internal/transport/http/generated/
 node_modules/
 dist/
 build/
@@ -34,3 +34,10 @@ screenshots/
 Thumbs.db
 .DS_Store
 desktop.ini
+
+data/catalog_curation.json
+data/ranking_*.json
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
