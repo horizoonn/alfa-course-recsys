@@ -8,7 +8,7 @@ import type {
 } from '../types';
 import { mockDemoProfiles, mockMeta, mockRecommendations } from './mock';
 
-export const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
+export const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
 const BASE = (import.meta.env.VITE_API_BASE ?? '/api').replace(/\/+$/, '');
 
 export class ApiError extends Error {

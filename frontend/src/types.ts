@@ -28,6 +28,7 @@ export type ReasonCode =
   | 'experience_match'
   | 'industry_match'
   | 'history_match'
+  | 'content_match'
   | 'general_selection'
   | 'broader_topic';
 

@@ -10,7 +10,7 @@ globalThis.crypto ??= require('node:crypto').webcrypto;
 const loadTypeScript = (module, filename) => {
   const source = fs.readFileSync(filename, 'utf8').replaceAll(
     'import.meta.env',
-    "({ VITE_USE_MOCK: 'false', VITE_API_BASE: '/api/' })",
+    "({ VITE_API_BASE: '/api/' })",
   );
   module._compile(ts.transpileModule(source, {
     compilerOptions: {
@@ -174,4 +174,13 @@ test('mock request IDs work without crypto.randomUUID on HTTP origins', async (t
   const second = await mockRecommendations({});
   assert.match(first.request_id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.notEqual(first.request_id, second.request_id);
+});
+
+test('real API is enabled without an explicit mock setting', () => {
+  assert.equal(api.USE_MOCK, false);
+});
+
+test('content_match reason is rendered from the API text', () => {
+  const html = renderCard({ ...card, reasons: [{ code: 'content_match', text: 'Содержание связано с выбранной задачей.' }] });
+  assert.ok(html.includes('Содержание связано с выбранной задачей.'));
 });
