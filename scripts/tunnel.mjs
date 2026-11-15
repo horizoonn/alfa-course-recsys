@@ -98,6 +98,19 @@ function hint(lines) {
   for (const line of lines) console.log(`            ${line}`);
 }
 
+// Кладём адрес в буфер обмена: его нужно вставить в Render → API_TARGET,
+// а вручную копировать из лога неудобно (и легко ошибиться).
+function copyToClipboard(text) {
+  if (process.platform !== 'win32') return false;
+  try {
+    const child = spawn('clip', [], { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true });
+    child.stdin.end(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function ask(question) {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
@@ -163,8 +176,9 @@ function cryptoRandomHex(bytes) {
 
 async function publish(adminUrl, adminToken, url) {
   if (!adminUrl) {
+    const copied = copyToClipboard(url);
     info('ADMIN_URL не задан — впиши адрес вручную в Render → API_TARGET:');
-    hint([url]);
+    hint([url, copied ? '(адрес уже скопирован в буфер обмена)' : ''].filter(Boolean));
     return false;
   }
 
