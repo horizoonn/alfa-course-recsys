@@ -1,3 +1,5 @@
+import type { MouseEvent } from 'react';
+import { useTelegram } from '../hooks/useTelegram';
 import type { MaterialCard, MaterialKind } from '../types';
 
 const TYPE_LABELS: Record<MaterialKind, string> = {
@@ -23,10 +25,23 @@ interface Props {
 }
 
 export default function MaterialCardView({ item, onRefineRequest }: Props) {
+  const { webApp } = useTelegram();
   const access = ACCESS_LABELS[item.access] ?? ACCESS_LABELS.unknown;
   const typeLabel = TYPE_LABELS[item.type] ?? 'Материал';
   const action = item.next_action;
   const canOpen = action.type !== 'refine_request' && item.source_url !== null;
+
+  // Внутри Telegram открываем через WebApp.openLink: обычный target="_blank"
+  // в WebView может не сработать.
+  const handleOpen = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!webApp || !item.source_url) return;
+    event.preventDefault();
+    try {
+      webApp.openLink(item.source_url);
+    } catch {
+      window.open(item.source_url, '_blank', 'noopener,noreferrer');
+    }
+  };
 
   return (
     <article className="card">
@@ -56,6 +71,7 @@ export default function MaterialCardView({ item, onRefineRequest }: Props) {
             href={item.source_url ?? undefined}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={handleOpen}
           >
             {action.label}
           </a>
