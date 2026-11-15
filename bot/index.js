@@ -3,15 +3,19 @@
 // Регистрирует кнопку меню и inline-кнопку с web_app URL через Bot API —
 // поэтому URL в BotFather вводить не нужно.
 //
-// Запуск:  npm start   (читает .env через node --env-file)
+// Запуск:  npm start
 //
-// Облачный запуск (Render/Railway): если задан PORT, поднимается минимальный
-// HTTP-сервер для health-check платформы. Нужен, потому что в некоторых сетях
-// (например, у части российских провайдеров) доступ к api.telegram.org закрыт,
-// и локальный long polling не работает — бот крутится в облаке.
+// Облачный запуск (Render/Railway): сервис делает сразу три вещи:
+//  1) long polling — в облаке api.telegram.org доступен, а у части российских
+//     провайдеров он заблокирован, поэтому бот живёт в облаке;
+//  2) отдаёт собранный фронтенд (bot/web) — это даёт Telegram постоянный
+//     HTTPS-адрес Mini App, который не зависит от туннелей;
+//  3) проксирует /api/* на локальный Go-бэкенд через туннель (API_TARGET),
+//     поэтому CORS не нужен, а адрес туннеля меняется без передеплоя.
 
 import fs from 'node:fs';
-import http from 'node:http';
+
+import { createAppServer } from './server.js';
 
 // Загружаем .env вручную, если он есть (локальный запуск).
 // В облаке (Render/Railway) файла нет — переменные приходят из окружения.
@@ -38,9 +42,18 @@ function loadDotEnv(path = '.env') {
 loadDotEnv();
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const PORT = process.env.PORT ? Number(process.env.PORT) : null;
-const WEBAPP_URL = process.env.WEBAPP_URL ?? '';
+const PORT = Number(process.env.PORT ?? process.env.WEBAPP_PORT ?? 0) || null;
 const MENU_TEXT = process.env.BOT_MENU_TEXT ?? 'Открыть Альфа Курс';
+
+// Render сам сообщает публичный адрес сервиса — используем его как адрес
+// Mini App, если WEBAPP_URL не задан вручную.
+const RENDER_URL = (process.env.RENDER_EXTERNAL_URL ?? '').replace(/\/+$/, '');
+const WEBAPP_URL = process.env.WEBAPP_URL ?? (RENDER_URL ? `${RENDER_URL}/` : '');
+
+// Адрес туннеля к локальному API и токен для смены этого адреса на лету.
+const API_TARGET = process.env.API_TARGET ?? '';
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
+const KEEPALIVE = ['1', 'true', 'yes'].includes((process.env.KEEPALIVE ?? '').toLowerCase());
 
 const API_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const POLL_TIMEOUT_SECONDS = 30;
@@ -134,10 +147,37 @@ function noUrlHint() {
     `Сейчас указано: ${WEBAPP_URL || '(пусто)'}`,
     '',
     'Как получить адрес:',
-    '1) задеплой папку frontend/dist на https://app.netlify.com/drop',
-    '2) полученный https://xxxx.netlify.app впиши в bot/.env как WEBAPP_URL',
-    '3) перезапусти бота и снова отправь /start',
+    '1) задеплой сервис на Render (Root Directory: bot, Start Command: npm start)',
+    '   — адрес https://<service>.onrender.com/ подставится автоматически;',
+    '2) либо собери фронт (npm run build в frontend) и выложи frontend/dist',
+    '   на https://app.netlify.com/drop, затем впиши адрес в WEBAPP_URL;',
+    '3) перезапусти бота и снова отправь /start.',
   ].join('\n');
+}
+
+function startWebServer() {
+  const { server } = createAppServer({
+    staticDir: process.env.STATIC_DIR ?? undefined,
+    apiTarget: API_TARGET,
+    adminToken: ADMIN_TOKEN,
+  });
+
+  server.listen(PORT, () => {
+    console.log(`[web] Mini App и прокси /api на порту ${PORT}`);
+    console.log(`[web] адрес приложения: ${WEBAPP_URL || '(WEBAPP_URL не задан)'}`);
+    console.log(`[web] API_TARGET: ${API_TARGET || '(не задан — фронт покажет демо-данные)'}`);
+    console.log(`[web] админка: ${ADMIN_TOKEN ? 'включена (/__admin/target)' : 'выключена'}`);
+  });
+
+  // Бесплатный инстанс Render засыпает после 15 минут без входящих запросов.
+  // Самопинг держит сервис (а значит и long polling) активным.
+  if (KEEPALIVE && RENDER_URL) {
+    const interval = 5 * 60 * 1000;
+    setInterval(() => {
+      fetch(`${RENDER_URL}/health`).catch(() => {});
+    }, interval).unref();
+    console.log('[web] KEEPALIVE включён: самопинг каждые 5 минут');
+  }
 }
 
 async function sendMessage(chatId, text, replyMarkup) {
@@ -257,14 +297,9 @@ async function poll() {
 async function main() {
   console.log('[bot] запуск…');
 
-  // В облаке платформы ждут открытый порт для health-check.
+  // В облаке платформе нужен открытый порт: он же отдаёт Mini App.
   if (PORT) {
-    http
-      .createServer((_req, res) => {
-        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('alfa-course-bot: ok');
-      })
-      .listen(PORT, () => console.log(`[bot] health-check на порту ${PORT}`));
+    startWebServer();
   }
 
   const reachable = await checkTelegramReachable();

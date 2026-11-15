@@ -8,6 +8,8 @@
     "node": ">=20.6"
   },
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "sync-web": "node sync-web.mjs",
+    "smoke": "node smoke-test.mjs"
   }
 }
