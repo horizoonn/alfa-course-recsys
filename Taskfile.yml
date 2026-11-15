@@ -1,0 +1,39 @@
+version: '3'
+
+vars:
+  OGEN_VERSION: v1.24.0
+
+tasks:
+  openapi:generate:
+    desc: Generate the HTTP server from OpenAPI
+    dir: backend
+    cmds:
+      - go run github.com/ogen-go/ogen/cmd/ogen@{{.OGEN_VERSION}} --clean --config ../api/ogen.yaml --target internal/transport/http/generated --package openapi ../api/openapi.yaml
+
+  build:
+    desc: Generate and build the backend
+    dir: backend
+    cmds:
+      - task: openapi:generate
+      - go build -mod=readonly ./...
+
+  test:
+    desc: Generate and test the backend
+    dir: backend
+    cmds:
+      - task: openapi:generate
+      - go test -race -mod=readonly ./...
+
+  vet:
+    desc: Generate and check the backend
+    dir: backend
+    cmds:
+      - task: openapi:generate
+      - go vet -mod=readonly ./...
+
+  run:
+    desc: Generate and run the backend
+    dir: backend
+    cmds:
+      - task: openapi:generate
+      - go run -mod=readonly ./cmd/app

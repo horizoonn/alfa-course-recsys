@@ -1,0 +1,12 @@
+**
+!backend/
+!backend/**
+!api/
+!api/**
+backend/internal/transport/http/generated/
+**/.env
+**/.env.*
+**/*.backup
+**/*.dump
+**/*.test
+**/*.out

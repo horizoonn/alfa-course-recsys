@@ -1,0 +1,19 @@
+{
+  "version": "v1",
+  "reviewed": [
+    {
+      "key": "article:00000000-0000-4000-8000-000000000001",
+      "title_hash": "c58039abb3c75312991e5f7262abfe581a050f2b02ee7192cb9df9727893ef65",
+      "task_fits": [
+        {
+          "task_id": "first_steps",
+          "match": "direct"
+        }
+      ]
+    }
+  ],
+  "starter": [
+    "article:00000000-0000-4000-8000-000000000001"
+  ],
+  "demo_history": {}
+}
