@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "${POSTGRES_BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_BIND_HOST}:${POSTGRES_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -32,6 +32,7 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD}
       PGDATABASE: ${POSTGRES_DB}
       PGCONNECT_TIMEOUT: "5"
+      RESTORE_BACKUP: /backups/${POSTGRES_BACKUP_FILE}
     volumes:
       - type: bind
         source: ./deploy/postgres
@@ -40,8 +41,8 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: ${POSTGRES_BACKUP_PATH:-./data/alfa_course_hackathon.backup}
-        target: /backups/source.backup
+        source: ${POSTGRES_BACKUP_DIR}
+        target: /backups
         read_only: true
         bind:
           create_host_path: false
@@ -50,6 +51,80 @@ services:
         condition: service_healthy
     restart: "no"
     read_only: true
+
+  app:
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: app
+    user: "${LOCAL_UID}:${LOCAL_GID}"
+    environment:
+      DATABASE_URL: ${DATABASE_URL_DOCKER}
+      HTTP_ADDR: 0.0.0.0:8080
+      STARTUP_TIMEOUT: ${STARTUP_TIMEOUT}
+      SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT}
+      CATALOG_CURATION_PATH: /data/catalog_curation.json
+      TEXT_SCORES_PATH: /data/ranking_text_scores.json
+    volumes:
+      - type: bind
+        source: ./data
+        target: /data
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "127.0.0.1:${APP_PORT}:8080"
+    depends_on:
+      text-prepare:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/api/health]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+  catalog-export:
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: catalog-export
+    user: "${LOCAL_UID}:${LOCAL_GID}"
+    environment:
+      DATABASE_URL: ${DATABASE_URL_DOCKER}
+      CATALOG_CURATION_PATH: /data/catalog_curation.json
+      TEXT_SCORES_PATH: /data/ranking_text_scores.json
+    command: [--documents-only, --output, /data/ranking_catalog.json]
+    volumes:
+      - type: bind
+        source: ./data
+        target: /data
+        bind:
+          create_host_path: false
+    depends_on:
+      db-restore:
+        condition: service_completed_successfully
+    restart: "no"
+
+  text-prepare:
+    pull_policy: build
+    build: ./ranking
+    user: "${LOCAL_UID}:${LOCAL_GID}"
+    network_mode: none
+    volumes:
+      - type: bind
+        source: ./data
+        target: /data
+        bind:
+          create_host_path: false
+    depends_on:
+      catalog-export:
+        condition: service_completed_successfully
+    restart: "no"
 
 volumes:
   postgres_data:

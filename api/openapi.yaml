@@ -1,0 +1,785 @@
+openapi: 3.0.4
+info:
+  title: Альфа-Курс — API рекомендаций
+  version: 0.1.0
+  description: Подбор образовательных материалов по профилю пользователя.
+  contact:
+    url: https://github.com/horizoonn/alfa-course-recsys
+servers:
+  - url: /
+    description: Сервер приложения.
+security: []
+tags:
+  - name: Metadata
+    description: Справочники и синтетические профили.
+  - name: Recommendations
+    description: Подбор материалов и объяснения.
+  - name: System
+    description: Готовность API.
+paths:
+  /api/meta:
+    get:
+      operationId: GetMeta
+      tags:
+        - Metadata
+      summary: Получить справочники анкеты
+      description: Варианты задач, стадий бизнеса, отраслей, опыта и формата помощи.
+      responses:
+        '200':
+          description: Справочники анкеты.
+          headers:
+            X-Request-Id:
+              description: Идентификатор запроса.
+              schema:
+                $ref: '#/components/schemas/RequestId'
+            Cache-Control:
+              description: Запрет кеширования ответа.
+              schema:
+                type: string
+                enum:
+                  - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetaResponse'
+              example:
+                tasks:
+                  - id: first_steps
+                    label: Первые шаги в бизнесе
+                  - id: attract_clients
+                    label: Привлечь клиентов
+                  - id: promotion
+                    label: Продвижение бизнеса
+                  - id: finance
+                    label: Управление финансами
+                  - id: accounting
+                    label: Разобраться в учёте
+                  - id: sales
+                    label: Увеличить продажи
+                  - id: team
+                    label: Найм и команда
+                  - id: export
+                    label: Выход на зарубежные рынки
+                stages:
+                  - id: idea
+                    label: Только идея
+                  - id: starting
+                    label: Планирую открыть
+                  - id: running
+                    label: Бизнес уже работает
+                  - id: growing
+                    label: Развиваю и расту
+                industries:
+                  - id: services
+                    label: Услуги
+                  - id: retail
+                    label: Торговля
+                  - id: it
+                    label: IT и онлайн
+                  - id: food
+                    label: Общепит
+                  - id: production
+                    label: Производство
+                experience:
+                  - id: beginner
+                    label: Начальный
+                  - id: intermediate
+                    label: Средний
+                  - id: advanced
+                    label: Продвинутый
+                help_modes:
+                  - id: quick_answer
+                    label: Быстрый ответ
+                  - id: tool
+                    label: Практический инструмент
+                  - id: deep_learning
+                    label: Подробное обучение
+        '503':
+          $ref: '#/components/responses/DataUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        default:
+          $ref: '#/components/responses/UnexpectedError'
+  /api/recommendations:
+    post:
+      operationId: Recommend
+      tags:
+        - Recommendations
+      summary: Подобрать материалы
+      description: Возвращает до limit материалов. Пустой профиль включает стартовую подборку. Если совпадений
+        нет, items пуст.
+      responses:
+        '200':
+          description: Подборка материалов. При отсутствии совпадений items пуст.
+          headers:
+            X-Request-Id:
+              description: Идентификатор запроса.
+              schema:
+                $ref: '#/components/schemas/RequestId'
+            Cache-Control:
+              description: Запрет кеширования ответа.
+              schema:
+                type: string
+                enum:
+                  - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationsResponse'
+              examples:
+                StarterResponse:
+                  $ref: '#/components/examples/StarterResponse'
+                SubscriptionResponse:
+                  $ref: '#/components/examples/SubscriptionResponse'
+                EmptyResponse:
+                  $ref: '#/components/examples/EmptyResponse'
+        '503':
+          $ref: '#/components/responses/DataUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/InvalidInput'
+        default:
+          $ref: '#/components/responses/UnexpectedError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendationsRequest'
+            examples:
+              ColdStartRequest:
+                $ref: '#/components/examples/ColdStartRequest'
+              ProfileRequest:
+                $ref: '#/components/examples/ProfileRequest'
+              DemoRequest:
+                $ref: '#/components/examples/DemoRequest'
+              PartialRequest:
+                $ref: '#/components/examples/PartialRequest'
+  /api/demo-profiles:
+    get:
+      operationId: ListDemoProfiles
+      tags:
+        - Metadata
+      summary: Получить демо-профили
+      description: Синтетические профили P01–P10 для проверки подбора.
+      responses:
+        '200':
+          description: Список демо-профилей.
+          headers:
+            X-Request-Id:
+              description: Идентификатор запроса.
+              schema:
+                $ref: '#/components/schemas/RequestId'
+            Cache-Control:
+              description: Запрет кеширования ответа.
+              schema:
+                type: string
+                enum:
+                  - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DemoProfilesResponse'
+              example:
+                - id: P01
+                  title: P01 — начинающий
+                  description: Открывает бизнес в сфере услуг. Нужен первый шаг.
+                  profile:
+                    stage: starting
+                    industry: services
+                    experience: beginner
+                    task_id: first_steps
+                    help_mode: quick_answer
+                - id: P02
+                  title: P02 — микробизнес, маркетинг
+                  description: Ведёт микробизнес в услугах. Хочет привлечь клиентов.
+                  profile:
+                    stage: running
+                    industry: services
+                    experience: beginner
+                    task_id: attract_clients
+                    help_mode: quick_answer
+        '503':
+          $ref: '#/components/responses/DataUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        default:
+          $ref: '#/components/responses/UnexpectedError'
+  /api/health:
+    get:
+      operationId: GetHealth
+      tags:
+        - System
+      summary: Проверить готовность API
+      description: Проверяет готовность сервиса и каталога к подбору.
+      responses:
+        '200':
+          description: Сервис и каталог готовы к подбору.
+          headers:
+            X-Request-Id:
+              description: Идентификатор запроса.
+              schema:
+                $ref: '#/components/schemas/RequestId'
+            Cache-Control:
+              description: Запрет кеширования ответа.
+              schema:
+                type: string
+                enum:
+                  - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+        '503':
+          $ref: '#/components/responses/DataUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        default:
+          $ref: '#/components/responses/UnexpectedError'
+components:
+  schemas:
+    RequestId:
+      type: string
+      format: uuid
+      description: UUID запроса. Совпадает с X-Request-Id, если присутствует в теле ответа.
+    RecommendationLimit:
+      type: integer
+      minimum: 1
+      maximum: 3
+      default: 3
+    Profile:
+      type: object
+      additionalProperties: false
+      properties:
+        task_id:
+          type: string
+          minLength: 1
+          nullable: true
+          description: Код задачи из /api/meta.
+        stage:
+          type: string
+          minLength: 1
+          nullable: true
+          description: Код стадии бизнеса из /api/meta.
+        industry:
+          type: string
+          minLength: 1
+          nullable: true
+          description: Код отрасли из /api/meta.
+        experience:
+          type: string
+          minLength: 1
+          nullable: true
+          description: Код опыта в теме из /api/meta.
+        help_mode:
+          type: string
+          minLength: 1
+          nullable: true
+          description: Код формата помощи из /api/meta.
+          enum:
+            - quick_answer
+            - tool
+            - deep_learning
+            - null
+      description: Все поля необязательны. Отсутствие поля или null означает, что значение неизвестно.
+        Коды берутся из /api/meta.
+    ProfileRecommendationsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        profile:
+          $ref: '#/components/schemas/Profile'
+        limit:
+          $ref: '#/components/schemas/RecommendationLimit'
+      required:
+        - profile
+    DemoRecommendationsRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - demo_profile_id
+      properties:
+        demo_profile_id:
+          type: string
+          minLength: 1
+          pattern: ^P(?:0[1-9]|10)$
+        limit:
+          $ref: '#/components/schemas/RecommendationLimit'
+    RecommendationsRequest:
+      description: Профиль или demo_profile_id. Совместная передача запрещена. {} и {"profile":{}} включают
+        холодный старт.
+      oneOf:
+        - $ref: '#/components/schemas/ColdStartRecommendationsRequest'
+        - $ref: '#/components/schemas/ProfileRecommendationsRequest'
+        - $ref: '#/components/schemas/DemoRecommendationsRequest'
+    MaterialKind:
+      type: string
+      enum:
+        - article
+        - course
+        - document
+        - term
+        - calculator
+        - podcast
+        - webinar
+      description: Тип материала. Уроки входят в курс.
+    AccessModel:
+      type: string
+      enum:
+        - free
+        - subscription
+        - paid
+        - unknown
+      description: Условия доступа к материалу. Не подтверждает оплату пользователем.
+    RecommendationMode:
+      type: string
+      enum:
+        - personalized
+        - topic
+        - starter
+        - fallback
+      description: personalized — задача и контекст; topic — только задача; starter — холодный старт;
+        fallback — общая или пустая подборка.
+    RecommendationReason:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - text
+      properties:
+        code:
+          type: string
+          enum:
+            - task_match
+            - help_mode_match
+            - stage_match
+            - experience_match
+            - industry_match
+            - history_match
+            - content_match
+            - general_selection
+            - broader_topic
+        text:
+          type: string
+          minLength: 1
+          description: Причина, основанная на признаке, использованном при подборе.
+    NextAction:
+      type: object
+      additionalProperties: false
+      required:
+        - type
+        - label
+      properties:
+        type:
+          type: string
+          enum:
+            - open_material
+            - open_purchase
+            - refine_request
+        label:
+          type: string
+          minLength: 1
+    Limitation:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - HISTORY_UNAVAILABLE
+            - BROADER_TOPIC
+            - URL_UNVERIFIED
+            - NO_MATCHES
+            - PROFILE_INCOMPLETE
+        message:
+          type: string
+          minLength: 1
+    MaterialCard:
+      type: object
+      additionalProperties: false
+      required:
+        - material_key
+        - type
+        - title
+        - safe_summary
+        - access
+        - source_url
+        - reasons
+        - next_action
+      properties:
+        material_key:
+          type: string
+          minLength: 1
+          pattern: ^(article|course|document|term|calculator|podcast|webinar):[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$
+          description: Ключ вида kind:uuid. Префикс совпадает с type; ключ уникален внутри items.
+        type:
+          $ref: '#/components/schemas/MaterialKind'
+        title:
+          type: string
+          minLength: 1
+        safe_summary:
+          type: string
+          minLength: 1
+          nullable: true
+          maxLength: 300
+          description: Описание без HTML. Если описания нет или его нельзя публиковать — null.
+        access:
+          $ref: '#/components/schemas/AccessModel'
+        source_url:
+          type: string
+          minLength: 1
+          nullable: true
+          pattern: ^https?://[^\s/?#]+(?:[/?#][^\s]*)?$
+          description: Проверенная HTTP(S)-ссылка на страницу материала. Если ссылки нет — null.
+        reasons:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecommendationReason'
+          minItems: 1
+          maxItems: 8
+          description: Причины подбора с уникальными кодами.
+        next_action:
+          $ref: '#/components/schemas/NextAction'
+      description: Карточка рекомендации. При source_url=null действие — refine_request; остальные действия
+        открывают source_url.
+    RecommendationsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - request_id
+        - mode
+        - items
+        - limitations
+      properties:
+        request_id:
+          $ref: '#/components/schemas/RequestId'
+        mode:
+          $ref: '#/components/schemas/RecommendationMode'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaterialCard'
+          maxItems: 3
+          description: Материалы по убыванию релевантности, не больше limit. Ключи material_key уникальны.
+        limitations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Limitation'
+          maxItems: 5
+          description: Ограничения подбора с уникальными кодами. При отсутствии — [].
+    MetaOption:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - label
+      properties:
+        id:
+          type: string
+          minLength: 1
+        label:
+          type: string
+          minLength: 1
+    MetaResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - tasks
+        - stages
+        - industries
+        - experience
+        - help_modes
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetaOption'
+          description: Коды уникальны внутри списка.
+        stages:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetaOption'
+          description: Коды уникальны внутри списка.
+        industries:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetaOption'
+          description: Коды уникальны внутри списка.
+        experience:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetaOption'
+          description: Коды уникальны внутри списка.
+        help_modes:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetaOption'
+          description: Коды уникальны внутри списка.
+    DemoProfile:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - description
+        - profile
+      properties:
+        id:
+          type: string
+          minLength: 1
+          pattern: ^P(?:0[1-9]|10)$
+        title:
+          type: string
+          minLength: 1
+        description:
+          type: string
+          minLength: 1
+        profile:
+          $ref: '#/components/schemas/Profile'
+    DemoProfilesResponse:
+      type: array
+      items:
+        $ref: '#/components/schemas/DemoProfile'
+      maxItems: 10
+      description: Синтетические профили с уникальными ID.
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+    FieldError:
+      type: object
+      additionalProperties: false
+      required:
+        - field
+        - message
+      properties:
+        field:
+          type: string
+          minLength: 1
+          description: Путь поля, например profile.task_id.
+        message:
+          type: string
+          minLength: 1
+    ApiError:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - fields
+      properties:
+        code:
+          type: string
+          enum:
+            - INVALID_INPUT
+            - DATA_UNAVAILABLE
+            - INTERNAL_ERROR
+        message:
+          type: string
+          minLength: 1
+          description: Сообщение для пользователя без внутренних подробностей.
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldError'
+          description: Для общей ошибки — пустой массив.
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - request_id
+        - error
+      properties:
+        request_id:
+          $ref: '#/components/schemas/RequestId'
+        error:
+          $ref: '#/components/schemas/ApiError'
+    ColdStartRecommendationsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          $ref: '#/components/schemas/RecommendationLimit'
+  responses:
+    InvalidInput:
+      description: Неверный JSON, поля, коды или limit. Профиль и demo_profile_id переданы вместе.
+      headers:
+        X-Request-Id:
+          description: Идентификатор запроса.
+          schema:
+            $ref: '#/components/schemas/RequestId'
+        Cache-Control:
+          description: Запрет кеширования ответа.
+          schema:
+            type: string
+            enum:
+              - no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            request_id: 00000000-0000-4000-8000-000000000900
+            error:
+              code: INVALID_INPUT
+              message: Проверьте параметры запроса.
+              fields:
+                - field: profile.task_id
+                  message: Неизвестный код задачи.
+    DataUnavailable:
+      description: Данные для подбора недоступны.
+      headers:
+        X-Request-Id:
+          description: Идентификатор запроса.
+          schema:
+            $ref: '#/components/schemas/RequestId'
+        Cache-Control:
+          description: Запрет кеширования ответа.
+          schema:
+            type: string
+            enum:
+              - no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            request_id: 00000000-0000-4000-8000-000000000900
+            error:
+              code: DATA_UNAVAILABLE
+              message: Подбор временно недоступен. Повторите запрос позже.
+              fields: []
+    InternalError:
+      description: Внутренняя ошибка сервера.
+      headers:
+        X-Request-Id:
+          description: Идентификатор запроса.
+          schema:
+            $ref: '#/components/schemas/RequestId'
+        Cache-Control:
+          description: Запрет кеширования ответа.
+          schema:
+            type: string
+            enum:
+              - no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            request_id: 00000000-0000-4000-8000-000000000900
+            error:
+              code: INTERNAL_ERROR
+              message: Не удалось выполнить запрос. Повторите попытку позже.
+              fields: []
+    UnexpectedError:
+      description: Ошибка сервера.
+      headers:
+        X-Request-Id:
+          description: Идентификатор запроса.
+          schema:
+            $ref: '#/components/schemas/RequestId'
+        Cache-Control:
+          description: Запрет кеширования ответа.
+          schema:
+            type: string
+            enum:
+              - no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            request_id: 00000000-0000-4000-8000-000000000900
+            error:
+              code: INTERNAL_ERROR
+              message: Не удалось выполнить запрос. Повторите попытку позже.
+              fields: []
+  examples:
+    ColdStartRequest:
+      summary: Пустой профиль
+      value: {}
+    ProfileRequest:
+      summary: Коды из справочников
+      value:
+        profile:
+          task_id: attract_clients
+          stage: running
+          industry: services
+          experience: beginner
+          help_mode: quick_answer
+        limit: 3
+    DemoRequest:
+      summary: Демо без пользовательского профиля
+      value:
+        demo_profile_id: P02
+        limit: 3
+    PartialRequest:
+      summary: Неизвестная стадия и известный формат
+      value:
+        profile:
+          stage: null
+          help_mode: tool
+    StarterResponse:
+      summary: Стартовая подборка на синтетическом материале
+      value:
+        request_id: 00000000-0000-4000-8000-000000000900
+        mode: starter
+        items:
+          - material_key: article:00000000-0000-4000-8000-000000000101
+            type: article
+            title: Синтетический пример первых шагов
+            safe_summary: Краткое описание пользы учебного примера.
+            access: free
+            source_url: https://example.com/materials/first-steps
+            reasons:
+              - code: general_selection
+                text: Из подготовленной стартовой подборки.
+            next_action:
+              type: open_material
+              label: Прочитать материал
+        limitations:
+          - code: PROFILE_INCOMPLETE
+            message: Задача не указана, показана общая стартовая подборка.
+    SubscriptionResponse:
+      summary: Подписка, неизвестные описание и ссылка
+      value:
+        request_id: 00000000-0000-4000-8000-000000000900
+        mode: topic
+        items:
+          - material_key: podcast:00000000-0000-4000-8000-000000000901
+            type: podcast
+            title: Синтетический подкаст
+            safe_summary: null
+            access: subscription
+            source_url: null
+            reasons:
+              - code: task_match
+                text: Соответствует выбранной задаче.
+            next_action:
+              type: refine_request
+              label: Изменить подборку
+        limitations:
+          - code: URL_UNVERIFIED
+            message: Ссылка неизвестна, можно изменить подборку.
+    EmptyResponse:
+      summary: Нет совпадений — успешный ответ с пустым массивом
+      value:
+        request_id: 00000000-0000-4000-8000-000000000900
+        mode: fallback
+        items: []
+        limitations:
+          - code: NO_MATCHES
+            message: В подготовленном пуле нет совпадений. Измените запрос.
