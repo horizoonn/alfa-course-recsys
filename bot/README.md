@@ -8,8 +8,10 @@
    HTTPS-адрес, который не меняется при обрывах туннеля;
 3. **проксирует `/api/*`** на локальный Go-бэкенд, поднятый наружу через SSH-туннель.
 
+Боевой адрес: **https://alfa-course-recsys.onrender.com**
+
 ```
-Telegram ──> https://<service>.onrender.com/   (Render, постоянный адрес)
+Telegram ──> https://alfa-course-recsys.onrender.com/   (Render, постоянный адрес)
                  │
                  ├── /            -> bot/web (SPA)
                  ├── /api/*       -> туннель -> 127.0.0.1:8080 (Go API + Postgres)
@@ -42,7 +44,8 @@ Render читает его раз в минуту -> менять перемен
 
 ## Деплой на Render
 
-1. New → **Web Service** → репозиторий `alfa-course-recsys`, ветка `front`;
+1. New → **Web Service** → репозиторий `alfa-course-recsys`, ветка `front`
+   (уже создан: сервис `alfa-course-recsys`, Node, Free, Oregon);
 2. **Root Directory**: `bot`, **Build Command**: `npm install`, **Start Command**: `npm start`,
    план Free, Auto-Deploy: On;
 3. Environment: достаточно `BOT_TOKEN`. Остальное работает по умолчанию;
