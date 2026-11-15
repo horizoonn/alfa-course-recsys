@@ -1,16 +1,14 @@
 @echo off
-rem Устойчивый туннель к локальному фронту для Telegram Mini App.
+rem Устарело: используй node scripts\tunnel.mjs
+rem
+rem Скрипт tunnel.mjs делает то же самое, но ещё и сам публикует новый адрес
+rem в Render (POST /__admin/target), поэтому Mini App не отваливается при
+rem переподключении туннеля.
+rem
+rem Оставлено как резерв: простой SSH-туннель к 127.0.0.1:<порт>.
 rem Использование:  scripts\tunnel.bat [порт]   (по умолчанию 4174)
 rem
-rem Что делает:
-rem  - поднимает SSH-туннель через localhost.run к 127.0.0.1:<порт>;
-rem  - держит соединение живым (ServerAliveInterval);
-rem  - при обрыве автоматически переподключается.
-rem
-rem Важно: если туннель без аккаунта — адрес меняется при каждом переподключении,
-rem и его нужно обновлять в Render (WEBAPP_URL). Чтобы адрес был постоянным,
-rem добавь свой SSH-ключ на https://admin.localhost.run и используй
-rem scripts\tunnel-stable.bat со своим поддоменом.
+rem Важно: при обрыве адрес меняется, и его нужно вписывать в API_TARGET на Render.
 
 setlocal
 set PORT=%1
