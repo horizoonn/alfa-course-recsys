@@ -22,7 +22,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
@@ -33,6 +33,16 @@ const BOT_ENV = path.join(ROOT, 'bot', '.env');
 const args = process.argv.slice(2);
 const PROBE = args.includes('--probe');
 const PORT = args.find((arg) => !arg.startsWith('-')) ?? '8080';
+// --seconds=N — поработать N секунд и выйти (быстрая проверка публикации адреса).
+const RUN_LIMIT_SECONDS =
+  Number((args.find((arg) => arg.startsWith('--seconds=')) ?? '').split('=')[1]) || 0;
+
+// Ветка-канал: сюда скрипт пушит адрес туннеля, отсюда сервис на Render его
+// читает (raw.githubusercontent.com). Ветка не деплоится, поэтому пуши не
+// вызывают пересборку сервиса.
+const STATE_BRANCH = 'tunnel';
+const STATE_FILE = 'bot/tunnel-url.txt';
+const STATE_DIR = path.join(ROOT, 'tmp', 'tunnel-state');
 
 // localhost.run в приветствии печатает ссылки на админку и документацию —
 // их нельзя принимать за адрес туннеля. Настоящий туннель выглядит так:
@@ -120,66 +130,86 @@ async function ask(question) {
   }
 }
 
-async function resolveAdminConfig() {
-  let adminUrl = (process.env.ADMIN_URL ?? '').replace(/\/+$/, '');
-  let adminToken = process.env.ADMIN_TOKEN ?? '';
-
-  if (!adminUrl && process.stdin.isTTY && !PROBE) {
-    console.log('');
-    info('адрес сервиса Render не задан (ADMIN_URL).');
-    hint([
-      'Открой «Альфа Курс» в браузере и скопируй адрес из строки браузера.',
-      'Пример: https://alfa-course-bot-abcd.onrender.com',
-      'Нужен только домен, без /health, /api и без слэша на конце.',
-      '',
-    ]);
-    const answer = (await ask('Вставь адрес сервиса Render (Enter — пропустить): ')).trim();
-    if (answer) {
-      adminUrl = answer.replace(/\/+$/, '');
-      if (!/^https?:\/\//i.test(adminUrl)) adminUrl = `https://${adminUrl}`;
-      saveEnvValue('ADMIN_URL', adminUrl);
-      info(`сохранил в bot/.env: ADMIN_URL=${adminUrl}`);
-    }
-  }
-
-  if (adminUrl && !adminToken && process.stdin.isTTY && !PROBE) {
-    console.log('');
-    info('ADMIN_TOKEN не задан — без него Render не примет новый адрес.');
-    hint([
-      '1) Render → твой сервис → Environment → Add Environment Variable',
-      '2) Key: ADMIN_TOKEN, Value: любая длинная строка (например, ниже)',
-      '3) Save (сервис передеплоится), затем запусти скрипт снова',
-      '',
-    ]);
-    const suggestion = Buffer.from(cryptoRandomHex(16)).toString('hex');
-    info(`можно взять такой токен: ${suggestion}`);
-    const answer = (await ask('Вставь ADMIN_TOKEN из Render (Enter — пропустить): ')).trim();
-    if (answer) {
-      adminToken = answer;
-      saveEnvValue('ADMIN_TOKEN', adminToken);
-      info('сохранил в bot/.env: ADMIN_TOKEN=***');
-    }
-  }
-
+function resolveAdminConfig() {
+  // Прямая публикация в Render (ADMIN_URL) — необязательный путь: у части
+  // провайдеров onrender.com недоступен из локальной сети. Основной канал —
+  // ветка tunnel на GitHub, поэтому ничего спрашивать у пользователя не нужно.
+  const adminUrl = (process.env.ADMIN_URL ?? '').replace(/\/+$/, '');
+  const adminToken = process.env.ADMIN_TOKEN ?? '';
   return { adminUrl, adminToken };
 }
 
-function cryptoRandomHex(bytes) {
-  // Без node:crypto ради читаемости: значения всё равно только для демо.
-  const alphabet = 'abcdef0123456789';
-  let out = '';
-  for (let i = 0; i < bytes * 2; i += 1) {
-    out += alphabet[Math.floor(Math.random() * alphabet.length)];
+function gitGit(args, cwd) {
+  return spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
+}
+
+// Публикация адреса в ветку tunnel. Это основной канал: из локальной сети
+// onrender.com часто недоступен, а github.com доступен всегда.
+function publishViaGit(url) {
+  try {
+    const remote = (gitGit(['remote', 'get-url', 'origin'], ROOT).stdout ?? '').trim();
+    if (!remote) {
+      info('git remote origin не найден — публикация через GitHub недоступна');
+      return false;
+    }
+
+    if (!fs.existsSync(path.join(STATE_DIR, '.git'))) {
+      fs.rmSync(STATE_DIR, { recursive: true, force: true });
+      fs.mkdirSync(path.dirname(STATE_DIR), { recursive: true });
+      const cloned = gitGit(
+        ['clone', '--depth', '1', '--branch', STATE_BRANCH, remote, STATE_DIR],
+        ROOT,
+      );
+      if (cloned.status !== 0) {
+        // Ветки ещё нет — создаём сиротскую, в ней будет только этот файл.
+        fs.mkdirSync(STATE_DIR, { recursive: true });
+        gitGit(['init'], STATE_DIR);
+        gitGit(['checkout', '--orphan', STATE_BRANCH], STATE_DIR);
+        gitGit(['remote', 'add', 'origin', remote], STATE_DIR);
+      }
+    } else {
+      gitGit(['pull', '--rebase', '--autostash', 'origin', STATE_BRANCH], STATE_DIR);
+    }
+
+    const file = path.join(STATE_DIR, STATE_FILE);
+    const previous = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim() : '';
+    if (previous === url) return true;
+
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `${url}\n`, 'utf8');
+
+    gitGit(['add', STATE_FILE], STATE_DIR);
+    const commit = gitGit(['commit', '-m', `tunnel: ${url}`], STATE_DIR);
+    if (commit.status !== 0) {
+      info(`git commit не удался: ${(commit.stderr ?? '').trim().split('\n').pop()}`);
+      return false;
+    }
+
+    const push = gitGit(['push', 'origin', `HEAD:${STATE_BRANCH}`], STATE_DIR);
+    if (push.status !== 0) {
+      info(`git push в ветку ${STATE_BRANCH} не удался: ${(push.stderr ?? '').trim().split('\n').pop()}`);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    info(`публикация через GitHub не удалась: ${error?.message ?? error}`);
+    return false;
   }
-  return out;
 }
 
 async function publish(adminUrl, adminToken, url) {
+  const viaGit = publishViaGit(url);
+  if (viaGit) {
+    info(`адрес опубликован в GitHub (ветка ${STATE_BRANCH}) — Render подхватит за минуту`);
+  }
+
   if (!adminUrl) {
-    const copied = copyToClipboard(url);
-    info('ADMIN_URL не задан — впиши адрес вручную в Render → API_TARGET:');
-    hint([url, copied ? '(адрес уже скопирован в буфер обмена)' : ''].filter(Boolean));
-    return false;
+    if (!viaGit) {
+      const copied = copyToClipboard(url);
+      info('адрес опубликовать не удалось — впиши вручную в Render → API_TARGET:');
+      hint([url, copied ? '(адрес уже скопирован в буфер обмена)' : ''].filter(Boolean));
+    }
+    return viaGit;
   }
 
   try {
@@ -371,6 +401,14 @@ async function main() {
   process.on('SIGTERM', shutdown);
 
   connect(config);
+
+  if (RUN_LIMIT_SECONDS > 0) {
+    info(`работаю ${RUN_LIMIT_SECONDS} с, затем выйду (--seconds)`);
+    setTimeout(() => {
+      info('время вышло, завершаюсь');
+      process.exit(0);
+    }, RUN_LIMIT_SECONDS * 1000).unref();
+  }
 }
 
 void main();

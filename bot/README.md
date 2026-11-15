@@ -9,18 +9,20 @@
 3. **проксирует `/api/*`** на локальный Go-бэкенд, поднятый наружу через SSH-туннель.
 
 ```
-Telegram ──> https://<service>.onrender.com/  (Render, постоянный адрес)
-                    │
-                    ├── /            -> bot/web (SPA)
-                    ├── /api/*       -> туннель -> 127.0.0.1:8080 (Go API + Postgres)
-                    └── long polling -> api.telegram.org
+Telegram ──> https://<service>.onrender.com/   (Render, постоянный адрес)
+                 │
+                 ├── /            -> bot/web (SPA)
+                 ├── /api/*       -> туннель -> 127.0.0.1:8080 (Go API + Postgres)
+                 └── long polling -> api.telegram.org
+
+Адрес туннеля: GitHub, ветка tunnel, файл bot/tunnel-url.txt
+Render читает его раз в минуту -> менять переменные в панели не нужно
 ```
 
 Почему так: бесплатные туннели (localhost.run, serveo, trycloudflare) выдают новый
-адрес при каждом обрыве. Раньше адрес приходилось руками менять в `WEBAPP_URL`,
-и Mini App «отваливался». Теперь в Telegram зарегистрирован адрес Render,
-а меняется только внутренний `API_TARGET` — и это делается одной командой,
-без передеплоя.
+адрес при каждом обрыве, а у части российских провайдеров `onrender.com` вообще
+недоступен из локальной сети — ни панель, ни сам сервис. Поэтому адрес туннеля
+публикуется через `github.com` (он доступен всегда), а сервис сам его подхватывает.
 
 **URL в BotFather вводить не нужно:** бот сам вызывает `setChatMenuButton`
 и передаёт inline-кнопку `web_app` через Bot API.
@@ -30,10 +32,11 @@ Telegram ──> https://<service>.onrender.com/  (Render, постоянный 
 | Переменная | Обязательна | Назначение |
 |---|---|---|
 | `BOT_TOKEN` | да | токен из BotFather |
-| `WEBAPP_URL` | нет | адрес Mini App; на Render подставляется из `RENDER_EXTERNAL_URL` автоматически |
-| `API_TARGET` | да для реальных данных | адрес туннеля к локальному API, например `https://abc123.lhr.life` |
-| `ADMIN_TOKEN` | рекомендуется | токен для `/__admin/*` (смена `API_TARGET` без передеплоя) |
-| `KEEPALIVE` | нет | `1` — самопинг `/health` каждые 5 минут, чтобы бесплатный инстанс не засыпал |
+| `WEBAPP_URL` | нет | адрес Mini App. На Render **игнорируется**: всегда берётся `RENDER_EXTERNAL_URL`, чтобы старая переменная не увела кнопку в мёртвый туннель |
+| `TUNNEL_STATE_URL` | нет | откуда читать адрес туннеля; по умолчанию ветка `tunnel` этого репозитория |
+| `API_TARGET` | нет | стартовый адрес туннеля (перекрывается значением из GitHub) |
+| `ADMIN_TOKEN` | нет | включает `/__admin/*` — смена `API_TARGET` по HTTP, если до Render есть доступ |
+| `KEEPALIVE` | нет | по умолчанию включён на Render: самопинг `/health` каждые 5 минут, чтобы инстанс не засыпал |
 | `STATIC_DIR` | нет | каталог со сборкой, по умолчанию `./web` |
 | `PORT` | на Render задаёт платформа | порт HTTP-сервера |
 
@@ -41,18 +44,15 @@ Telegram ──> https://<service>.onrender.com/  (Render, постоянный 
 
 1. New → **Web Service** → репозиторий `alfa-course-recsys`, ветка `front`;
 2. **Root Directory**: `bot`, **Build Command**: `npm install`, **Start Command**: `npm start`,
-   план Free;
-3. Environment:
-   - `BOT_TOKEN` — из BotFather;
-   - `ADMIN_TOKEN` — придумать длинную строку (например, `openssl rand -hex 16`);
-   - `KEEPALIVE` = `1`;
-   - `API_TARGET` — текущий адрес туннеля (можно не задавать сразу: обновится скриптом);
-4. после деплоя в логах должно быть:
+   план Free, Auto-Deploy: On;
+3. Environment: достаточно `BOT_TOKEN`. Остальное работает по умолчанию;
+4. в логах после деплоя:
 
 ```
-[bot] подключён как @your_bot (@your_bot)
+[bot] подключён как @your_bot
 [web] Mini App и прокси /api на порту 10000
 [web] адрес приложения: https://your-service.onrender.com/
+[web] API_TARGET обновлён из GitHub: https://....app.lhr.life
 [bot] кнопка меню зарегистрирована: https://your-service.onrender.com/
 ```
 
@@ -68,8 +68,6 @@ npm run sync-web
 git add web && git commit -m "chore(bot): обновить сборку фронтенда" && git push
 ```
 
-Render пересоберёт сервис автоматически (1–2 минуты).
-
 ## Туннель к локальному API
 
 Go-бэкенд и Postgres остаются на ноутбуке (Docker), наружу — только API:
@@ -80,46 +78,35 @@ cd c:\hack_alfa
 docker compose up -d
 curl http://127.0.0.1:8080/api/health
 
-:: 2) в bot\.env добавить один раз:
-::    ADMIN_URL=https://your-service.onrender.com
-::    ADMIN_TOKEN=<тот же, что в Render>
-
-:: 3) туннель с автопубликацией адреса
+:: 2) туннель: держит соединение, при обрыве переподключается
+::    и после каждого переподключения публикует новый адрес в GitHub
 node scripts\tunnel.mjs
 ```
 
-Что вставлять в `ADMIN_URL`: это адрес сервиса из строки браузера, где открывается
-Mini App — `https://<service>.onrender.com`, без `/health`, `/api` и слэша на конце.
-Скрипт спросит его один раз и сохранит в `bot/.env`. Если `ADMIN_TOKEN` тоже не задан,
-скрипт подскажет значение и попросит вставить его в Render → Environment.
+Скрипт делает всё сам: поднимает SSH-туннель, ловит выданный адрес
+(`https://<id>.app.lhr.life`), коммитит его в ветку `tunnel` и пушит.
+Render подхватывает адрес в течение минуты — Telegram и переменные окружения
+трогать не нужно. Ветка `tunnel` не деплоится, поэтому пуши не вызывают пересборку.
 
-Проверка без запуска демо (туннель поднимается, публичный адрес доходит до API):
-
-```bat
-node scripts\tunnel.mjs --probe
-```
-
-Скрипт держит SSH-соединение, при обрыве переподключается и после каждого
-переподключения сам отправляет новый адрес в Render (`POST /__admin/target`).
-Mini App при этом продолжает работать — адрес в Telegram не меняется.
-
-Если скрипт не используется, адрес можно обновить вручную:
+Полезные режимы:
 
 ```bat
-curl -X POST https://your-service.onrender.com/__admin/target ^
-  -H "content-type: application/json" ^
-  -H "x-admin-token: <ADMIN_TOKEN>" ^
-  -d "{\"target\":\"https://new-address.lhr.life\"}"
+node scripts\tunnel.mjs --probe          :: проверить туннель и доступность API по публичному адресу
+node scripts\tunnel.mjs --seconds=30     :: протестировать публикацию адреса и выйти
+node scripts\tunnel.mjs 4174             :: туннелировать другой порт
 ```
+
+Если GitHub-канал недоступен, адрес копируется в буфер обмена — тогда его нужно
+вписать в Render → Environment → `API_TARGET` вручную.
 
 ## Диагностика
 
 | Запрос | Что показывает |
 |---|---|
-| `GET /health` | состояние сервиса: готова ли статика, текущий `API_TARGET`, время последнего успешного прокси и текст последней ошибки |
-| `GET /__admin/status` (с `x-admin-token`) | то же + сколько запросов проксировано |
-| `GET /__admin/check` | проверка «жив ли туннель»: сервис сам дёргает `<API_TARGET>/api/health` |
-| `POST /__admin/target` | смена `API_TARGET` на лету |
+| `GET /health` | готова ли статика, текущий `API_TARGET`, время последнего успешного прокси, текст последней ошибки |
+| `GET /__admin/status` (с `x-admin-token`) | то же + число проксированных запросов |
+| `GET /__admin/check` | сервис сам проверяет `<API_TARGET>/api/health` |
+| `POST /__admin/target` | смена `API_TARGET` по HTTP |
 
 Локальный смоук-тест без Telegram и Docker:
 
@@ -153,17 +140,17 @@ npm start
 | Симптом | Причина и решение |
 |---|---|
 | `BOT_TOKEN не задан` | нет `bot/.env` или пустой токен |
-| `Telegram API ...: Unauthorized` | неверный токен (взят от другого бота или с пробелом) |
-| `кнопка меню не зарегистрирована` | `WEBAPP_URL` не публичный HTTPS; на Render проверь, что `RENDER_EXTERNAL_URL` доступен |
-| Mini App открывается, но показывает плашку «демо-данные» | туннель до API лёг: перезапусти `node scripts\tunnel.mjs` или обнови `API_TARGET` |
-| `502 api_unreachable` в `/health` | то же самое; в `last_proxy_error` будет текст ошибки |
-| `Conflict: terminated by other getUpdates request` | запущено два экземпляра бота — останови лишний |
-| Сервис на Render «спит», бот не отвечает | бесплатный инстанс засыпает через 15 минут без входящих запросов; включи `KEEPALIVE=1` или пингуй `/health` внешним cron (например, cron-job.org) |
+| `Telegram API ...: Unauthorized` | неверный токен |
+| `кнопка меню не зарегистрирована` | `WEBAPP_URL` не публичный HTTPS (на Render проверь `RENDER_EXTERNAL_URL`) |
+| Mini App показывает плашку «демо-данные» | туннель до API лёг: перезапусти `node scripts\tunnel.mjs`, адрес уйдёт в GitHub автоматически |
+| `502 api_unreachable` в `/health` | то же; текст ошибки — в `last_proxy_error` |
+| `Conflict: terminated by other getUpdates request` | запущено два экземпляра бота |
+| Сервис «спит», бот не отвечает | бесплатный инстанс засыпает без входящих запросов; на Render `KEEPALIVE` включён по умолчанию |
 
 ## Ограничения MVP
 
 - long polling, без webhook и без БД — состояние не хранится;
 - `initData` от Telegram на бэкенд не отправляется (для трека 1 не требуется);
-- `API_TARGET`, изменённый через админку, живёт до перезапуска инстанса
-  (после рестарта берётся значение из переменных окружения);
+- адрес туннеля в памяти обновляется раз в минуту, поэтому после переподключения
+  возможна пауза до 60 секунд с демо-данными;
 - уведомления и напоминания не реализованы — это функциональность трека 2.

@@ -45,15 +45,28 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const PORT = Number(process.env.PORT ?? process.env.WEBAPP_PORT ?? 0) || null;
 const MENU_TEXT = process.env.BOT_MENU_TEXT ?? 'Открыть Альфа Курс';
 
-// Render сам сообщает публичный адрес сервиса — используем его как адрес
-// Mini App, если WEBAPP_URL не задан вручную.
+// Render сам сообщает публичный адрес сервиса. На Render он всегда важнее
+// переменной WEBAPP_URL: там мог остаться адрес прежнего туннеля, и кнопка
+// вела бы в никуда.
 const RENDER_URL = (process.env.RENDER_EXTERNAL_URL ?? '').replace(/\/+$/, '');
-const WEBAPP_URL = process.env.WEBAPP_URL ?? (RENDER_URL ? `${RENDER_URL}/` : '');
+const WEBAPP_URL = RENDER_URL ? `${RENDER_URL}/` : (process.env.WEBAPP_URL ?? '');
 
 // Адрес туннеля к локальному API и токен для смены этого адреса на лету.
 const API_TARGET = process.env.API_TARGET ?? '';
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
-const KEEPALIVE = ['1', 'true', 'yes'].includes((process.env.KEEPALIVE ?? '').toLowerCase());
+
+// Канал обновления адреса туннеля через GitHub: у части провайдеров
+// onrender.com недоступен, поэтому скрипт туннеля не может достучаться до
+// /__admin/target. Зато доступен github.com — скрипт пушит адрес в ветку
+// tunnel, а сервис читает файл отсюда (репозиторий публичный).
+const TUNNEL_STATE_URL =
+  process.env.TUNNEL_STATE_URL ??
+  'https://raw.githubusercontent.com/horizoonn/alfa-course-recsys/tunnel/bot/tunnel-url.txt';
+
+const KEEPALIVE =
+  process.env.KEEPALIVE === undefined
+    ? Boolean(RENDER_URL)
+    : ['1', 'true', 'yes'].includes(process.env.KEEPALIVE.toLowerCase());
 
 const API_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const POLL_TIMEOUT_SECONDS = 30;
@@ -155,12 +168,42 @@ function noUrlHint() {
   ].join('\n');
 }
 
+// Адрес туннеля меняется при каждом переподключении, а достучаться из локальной
+// сети до onrender.com часто нельзя. Поэтому источником истины служит файл в
+// ветке tunnel: скрипт туннеля его пушит, сервис раз в минуту перечитывает.
+function startTunnelStateSync(app) {
+  if (!TUNNEL_STATE_URL) return;
+
+  const tick = async () => {
+    try {
+      const response = await fetch(`${TUNNEL_STATE_URL}?t=${Date.now()}`, {
+        signal: AbortSignal.timeout(15_000),
+        cache: 'no-store',
+      });
+      if (!response.ok) return;
+
+      const url = (await response.text()).trim().split(/\s+/)[0];
+      if (!/^https:\/\//i.test(url)) return;
+      if (url === app.status().api_target) return;
+
+      app.setTarget(url);
+      console.log(`[web] API_TARGET обновлён из GitHub: ${url}`);
+    } catch {
+      // Нет сети/файла ещё нет — просто пробуем позже.
+    }
+  };
+
+  void tick();
+  setInterval(tick, 60_000).unref();
+}
+
 function startWebServer() {
-  const { server } = createAppServer({
+  const app = createAppServer({
     staticDir: process.env.STATIC_DIR ?? undefined,
     apiTarget: API_TARGET,
     adminToken: ADMIN_TOKEN,
   });
+  const { server } = app;
 
   server.listen(PORT, () => {
     console.log(`[web] Mini App и прокси /api на порту ${PORT}`);
@@ -168,6 +211,8 @@ function startWebServer() {
     console.log(`[web] API_TARGET: ${API_TARGET || '(не задан — фронт покажет демо-данные)'}`);
     console.log(`[web] админка: ${ADMIN_TOKEN ? 'включена (/__admin/target)' : 'выключена'}`);
   });
+
+  startTunnelStateSync(app);
 
   // Бесплатный инстанс Render засыпает после 15 минут без входящих запросов.
   // Самопинг держит сервис (а значит и long polling) активным.
