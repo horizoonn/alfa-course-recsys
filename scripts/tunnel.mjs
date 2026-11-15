@@ -6,24 +6,51 @@
 // (https://<service>.onrender.com), а этот скрипт сам сообщает Render новый
 // адрес туннеля через POST /__admin/target — передеплой не нужен.
 //
-// Запуск (из корня репозитория):
-//   node scripts/tunnel.mjs            # порт 8080 (Go API)
-//   node scripts/tunnel.mjs 4174       # если туннелируешь dev/preview фронта
+// Запуск (из корня репозитория, где лежат bot/ и scripts/):
+//   node scripts/tunnel.mjs              # порт 8080 (Go API)
+//   node scripts/tunnel.mjs 4174         # другой порт
+//   node scripts/tunnel.mjs --probe      # проверить, что туннель вообще встаёт
 //
-// Переменные (можно положить в bot/.env):
-//   ADMIN_URL    https://<service>.onrender.com
-//   ADMIN_TOKEN  значение ADMIN_TOKEN из настроек Render
+// Что вставлять:
+//   ADMIN_URL   — адрес сервиса на Render, как в адресной строке браузера:
+//                 https://alfa-course-bot-xxxx.onrender.com
+//                 (без /health, без /api, без слэша на конце)
+//   ADMIN_TOKEN — строка, которую ты задал в Render → Environment → ADMIN_TOKEN
 //
-// Скрипт держит соединение, при обрыве переподключается и каждый раз
-// публикует новый адрес. Ctrl+C — остановка.
+// Оба значения можно положить в bot/.env. Если ADMIN_URL не задан, скрипт
+// спросит его и сохранит в bot/.env, чтобы больше не спрашивать.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
+const BOT_ENV = path.join(ROOT, 'bot', '.env');
+
+const args = process.argv.slice(2);
+const PROBE = args.includes('--probe');
+const PORT = args.find((arg) => !arg.startsWith('-')) ?? '8080';
+
+// localhost.run в приветствии печатает ссылки на админку и документацию —
+// их нельзя принимать за адрес туннеля. Настоящий туннель выглядит так:
+//   https://0b20cae8d31b68.app.lhr.life
+//   https://abc123.lhr.life
+const TUNNEL_URL_PATTERN = /https:\/\/([a-z0-9][a-z0-9.-]*\.lhr\.life)/gi;
+const RESERVED_HOSTS = new Set(['admin.lhr.life', 'www.lhr.life', 'docs.lhr.life']);
+
+function findTunnelUrl(line) {
+  for (const match of line.matchAll(TUNNEL_URL_PATTERN)) {
+    const host = match[1].toLowerCase().replace(/\.+$/, '');
+    if (RESERVED_HOSTS.has(host)) continue;
+    return `https://${host}`;
+  }
+  return '';
+}
+const RECONNECT_DELAY_MS = 3000;
+const PROBE_TIMEOUT_MS = 35_000;
 
 function loadEnvFile(file) {
   if (!fs.existsSync(file)) return;
@@ -45,20 +72,19 @@ function loadEnvFile(file) {
   }
 }
 
-loadEnvFile(path.join(ROOT, 'bot', '.env'));
-loadEnvFile(path.join(ROOT, '.env'));
-
-const PORT = process.argv[2] ?? '8080';
-const ADMIN_URL = (process.env.ADMIN_URL ?? '').replace(/\/+$/, '');
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
-
-const TUNNEL_URL_PATTERN = /https:\/\/[a-z0-9][a-z0-9.-]*\.(?:lhr\.life|localhost\.run)/i;
-const RECONNECT_DELAY_MS = 3000;
-
-let child = null;
-let stopping = false;
-let publishedUrl = '';
-let pendingUrl = '';
+function saveEnvValue(key, value) {
+  const line = `${key}=${value}`;
+  let text = fs.existsSync(BOT_ENV) ? fs.readFileSync(BOT_ENV, 'utf8') : '';
+  const pattern = new RegExp(`^${key}=.*$`, 'm');
+  if (pattern.test(text)) {
+    text = text.replace(pattern, line);
+  } else {
+    if (text && !text.endsWith('\n')) text += '\n';
+    text += `${line}\n`;
+  }
+  fs.mkdirSync(path.dirname(BOT_ENV), { recursive: true });
+  fs.writeFileSync(BOT_ENV, text, 'utf8');
+}
 
 function stamp() {
   return new Date().toLocaleTimeString('ru-RU');
@@ -68,23 +94,86 @@ function info(message) {
   console.log(`${stamp()} [tunnel] ${message}`);
 }
 
-async function publish(url) {
-  if (!ADMIN_URL) {
-    info('ADMIN_URL не задан — адрес нужно вписать вручную в API_TARGET на Render:');
-    console.log(`            API_TARGET=${url}`);
-    return;
+function hint(lines) {
+  for (const line of lines) console.log(`            ${line}`);
+}
+
+async function ask(question) {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await new Promise((resolve) => rl.question(question, resolve));
+  } finally {
+    rl.close();
+  }
+}
+
+async function resolveAdminConfig() {
+  let adminUrl = (process.env.ADMIN_URL ?? '').replace(/\/+$/, '');
+  let adminToken = process.env.ADMIN_TOKEN ?? '';
+
+  if (!adminUrl && process.stdin.isTTY && !PROBE) {
+    console.log('');
+    info('адрес сервиса Render не задан (ADMIN_URL).');
+    hint([
+      'Открой «Альфа Курс» в браузере и скопируй адрес из строки браузера.',
+      'Пример: https://alfa-course-bot-abcd.onrender.com',
+      'Нужен только домен, без /health, /api и без слэша на конце.',
+      '',
+    ]);
+    const answer = (await ask('Вставь адрес сервиса Render (Enter — пропустить): ')).trim();
+    if (answer) {
+      adminUrl = answer.replace(/\/+$/, '');
+      if (!/^https?:\/\//i.test(adminUrl)) adminUrl = `https://${adminUrl}`;
+      saveEnvValue('ADMIN_URL', adminUrl);
+      info(`сохранил в bot/.env: ADMIN_URL=${adminUrl}`);
+    }
   }
 
-  if (!ADMIN_TOKEN) {
-    info('ADMIN_TOKEN не задан — Render отклонит смену адреса (403/401).');
+  if (adminUrl && !adminToken && process.stdin.isTTY && !PROBE) {
+    console.log('');
+    info('ADMIN_TOKEN не задан — без него Render не примет новый адрес.');
+    hint([
+      '1) Render → твой сервис → Environment → Add Environment Variable',
+      '2) Key: ADMIN_TOKEN, Value: любая длинная строка (например, ниже)',
+      '3) Save (сервис передеплоится), затем запусти скрипт снова',
+      '',
+    ]);
+    const suggestion = Buffer.from(cryptoRandomHex(16)).toString('hex');
+    info(`можно взять такой токен: ${suggestion}`);
+    const answer = (await ask('Вставь ADMIN_TOKEN из Render (Enter — пропустить): ')).trim();
+    if (answer) {
+      adminToken = answer;
+      saveEnvValue('ADMIN_TOKEN', adminToken);
+      info('сохранил в bot/.env: ADMIN_TOKEN=***');
+    }
+  }
+
+  return { adminUrl, adminToken };
+}
+
+function cryptoRandomHex(bytes) {
+  // Без node:crypto ради читаемости: значения всё равно только для демо.
+  const alphabet = 'abcdef0123456789';
+  let out = '';
+  for (let i = 0; i < bytes * 2; i += 1) {
+    out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return out;
+}
+
+async function publish(adminUrl, adminToken, url) {
+  if (!adminUrl) {
+    info('ADMIN_URL не задан — впиши адрес вручную в Render → API_TARGET:');
+    hint([url]);
+    return false;
   }
 
   try {
-    const response = await fetch(`${ADMIN_URL}/__admin/target`, {
+    const response = await fetch(`${adminUrl}/__admin/target`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        ...(ADMIN_TOKEN ? { 'x-admin-token': ADMIN_TOKEN } : {}),
+        ...(adminToken ? { 'x-admin-token': adminToken } : {}),
       },
       body: JSON.stringify({ target: url }),
       signal: AbortSignal.timeout(20_000),
@@ -92,32 +181,57 @@ async function publish(url) {
     const data = await response.json().catch(() => ({}));
 
     if (response.ok && data.ok) {
-      publishedUrl = url;
       info(`Render переключён на ${data.api_target ?? url}`);
-    } else {
-      info(`Render не принял адрес: ${response.status} ${JSON.stringify(data)}`);
-      console.log(`            впиши вручную API_TARGET=${url}`);
+      return true;
     }
+
+    info(`Render не принял адрес: ${response.status} ${JSON.stringify(data)}`);
+    if (response.status === 401 || response.status === 403) {
+      hint([
+        'ADMIN_TOKEN не совпадает с тем, что в Render, либо не задан на Render.',
+        `Проверь: ${adminUrl}/health → admin_enabled должно быть true`,
+        `Либо впиши вручную в Render → API_TARGET: ${url}`,
+      ]);
+    } else {
+      hint([`Впиши вручную в Render → API_TARGET: ${url}`]);
+    }
+    return false;
   } catch (error) {
-    info(`не удалось связаться с ${ADMIN_URL}: ${error?.message ?? error}`);
-    console.log(`            впиши вручную API_TARGET=${url}`);
+    info(`не удалось связаться с ${adminUrl}: ${error?.message ?? error}`);
+    hint([
+      'Проверь, что сервис на Render проснулся и открывается в браузере.',
+      `Либо впиши вручную в Render → API_TARGET: ${url}`,
+    ]);
+    return false;
   }
 }
 
-function handleLine(line) {
-  const match = line.match(TUNNEL_URL_PATTERN);
-  if (!match) return;
-  const url = match[0].replace(/\/+$/, '');
-  if (url === pendingUrl) return;
-  pendingUrl = url;
-  info(`публичный адрес туннеля: ${url}`);
-  void publish(url);
+async function checkRender(adminUrl, adminToken) {
+  if (!adminUrl) return;
+  info(`Render: ${adminUrl}`);
+  try {
+    const response = await fetch(`${adminUrl}/health`, { signal: AbortSignal.timeout(20_000) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      info(`Render ответил ${response.status} — сервис ещё собирается или упал`);
+      return;
+    }
+    info(
+      `Render на связи: статика ${data.static_ready ? 'ok' : 'НЕТ'}, ` +
+        `API_TARGET ${data.api_target ?? '(пусто)'}, админка ${data.admin_enabled ? 'вкл' : 'выкл'}`,
+    );
+    if (!data.admin_enabled && adminToken) {
+      hint(['ADMIN_TOKEN на Render не задан — адрес придётся вписывать вручную.']);
+    }
+  } catch (error) {
+    info(`Render недоступен: ${error?.message ?? error}`);
+  }
 }
 
-function connect() {
+function connect({ adminUrl, adminToken }) {
   info(`подключаю 127.0.0.1:${PORT} -> localhost.run`);
 
-  child = spawn(
+  const child = spawn(
     'ssh',
     [
       '-o',
@@ -130,6 +244,8 @@ function connect() {
       'TCPKeepAlive=yes',
       '-o',
       'ExitOnForwardFailure=yes',
+      '-o',
+      'ConnectTimeout=15',
       '-R',
       `80:127.0.0.1:${PORT}`,
       'nokey@localhost.run',
@@ -141,61 +257,106 @@ function connect() {
   child.stderr.setEncoding('utf8');
 
   let buffer = '';
+  let lastUrl = '';
+  let spawnFailed = false;
+
   const onData = (chunk) => {
+    if (PROBE) process.stdout.write(chunk);
     buffer += chunk;
     const lines = buffer.split(/\r?\n/);
     buffer = lines.pop() ?? '';
-    for (const line of lines) handleLine(line);
-    // Некоторые версии localhost.run печатают адрес без перевода строки.
-    if (buffer.length > 400) buffer = '';
+    for (const line of lines) {
+      const url = findTunnelUrl(line);
+      if (!url) continue;
+      if (url === lastUrl) continue;
+      lastUrl = url;
+      info(`публичный адрес туннеля: ${url}`);
+      if (PROBE) {
+        void (async () => {
+          // Первый запрос может попасть на край туннеля, который ещё не
+          // зарегистрировал соединение, поэтому пробуем несколько раз.
+          for (let attempt = 1; attempt <= 3; attempt += 1) {
+            try {
+              const response = await fetch(`${url}/api/health`, {
+                signal: AbortSignal.timeout(20_000),
+              });
+              const body = (await response.text()).slice(0, 120);
+              info(`проверка ${url}/api/health -> ${response.status} ${body}`);
+              info(
+                response.ok
+                  ? 'туннель до API работает: Render сможет отдавать реальные рекомендации'
+                  : 'туннель поднят, но API ответил ошибкой — проверь docker compose ps',
+              );
+              child.kill();
+              process.exit(response.ok ? 0 : 1);
+            } catch (error) {
+              info(
+                `попытка ${attempt}/3: ${error?.message ?? error}` +
+                  (error?.cause?.code ? ` (${error.cause.code})` : ''),
+              );
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+            }
+          }
+          info('туннель поднят, но публичный адрес не отвечает');
+          child.kill();
+          process.exit(1);
+        })();
+        return;
+      }
+      void publish(adminUrl, adminToken, url);
+    }
+    if (buffer.length > 2000) buffer = '';
   };
 
   child.stdout.on('data', onData);
   child.stderr.on('data', onData);
 
   child.on('error', (error) => {
-    info(`ssh недоступен: ${error?.message ?? error}`);
-    info('проверь, что OpenSSH-клиент установлен: ssh -V');
+    spawnFailed = true;
+    info(`не удалось запустить ssh: ${error?.message ?? error}`);
+    hint([
+      'OpenSSH-клиент не найден. Проверь в новом терминале: ssh -V',
+      'Windows: Параметры → Приложения → Дополнительные компоненты → OpenSSH-клиент.',
+      'Либо запусти scripts\\tunnel.bat — он использует тот же ssh.',
+    ]);
+    process.exit(1);
   });
 
   child.on('exit', (code) => {
-    if (stopping) return;
+    if (spawnFailed || PROBE) return;
     info(`соединение закрыто (код ${code ?? '?'}), переподключаюсь через 3 с`);
-    setTimeout(connect, RECONNECT_DELAY_MS);
+    setTimeout(() => connect({ adminUrl, adminToken }), RECONNECT_DELAY_MS);
   });
-}
 
-function shutdown() {
-  if (stopping) return;
-  stopping = true;
-  info('остановка…');
-  if (child) child.kill();
-  setTimeout(() => process.exit(0), 300);
+  if (PROBE) {
+    setTimeout(() => {
+      info('за 35 секунд адрес туннеля не получен — localhost.run недоступен');
+      child.kill();
+      process.exit(1);
+    }, PROBE_TIMEOUT_MS);
+  }
 }
-
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
 
 async function main() {
-  info(`порт: ${PORT}`);
-  info(`Render: ${ADMIN_URL || '(ADMIN_URL не задан)'}`);
-  if (ADMIN_URL && ADMIN_TOKEN) {
-    try {
-      const response = await fetch(`${ADMIN_URL}/__admin/status`, {
-        headers: { 'x-admin-token': ADMIN_TOKEN },
-        signal: AbortSignal.timeout(20_000),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (response.ok) {
-        info(`Render на связи, текущий API_TARGET: ${data.api_target ?? '(пусто)'}`);
-      } else {
-        info(`Render ответил ${response.status} — проверь ADMIN_TOKEN`);
-      }
-    } catch (error) {
-      info(`Render недоступен: ${error?.message ?? error}`);
-    }
+  if (!fs.existsSync(path.join(ROOT, 'bot'))) {
+    console.error(
+      '[tunnel] запусти скрипт из корня репозитория: node scripts\\tunnel.mjs',
+    );
+    process.exit(1);
   }
-  connect();
+
+  const config = await resolveAdminConfig();
+  info(`порт API: ${PORT}${PROBE ? ' (режим проверки)' : ''}`);
+  await checkRender(config.adminUrl, config.adminToken);
+
+  const shutdown = () => {
+    info('остановка…');
+    process.exit(0);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+
+  connect(config);
 }
 
 void main();
