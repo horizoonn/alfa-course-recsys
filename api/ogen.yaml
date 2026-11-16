@@ -1,6 +1,6 @@
 generator:
   filters:
-    path_regex: ^/api/(meta|demo-profiles|health|recommendations)$
+    path_regex: ^/api/(meta|demo-profiles|history-profiles|health|recommendations|deepening)$
     methods: [get, post]
   features:
     disable:

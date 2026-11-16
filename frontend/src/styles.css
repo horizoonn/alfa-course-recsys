@@ -407,3 +407,31 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
+
+
+.field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 10px;
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  resize: vertical;
+}
+.field textarea:focus-visible { outline: 2px solid #ef3124; outline-offset: 2px; }
+.profile-details summary { cursor: pointer; margin-bottom: 12px; }
+
+.text-button { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--bg); font: inherit; font-size: 13px; cursor: pointer; }
+.text-button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+
+.deepening {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+.deepening h4 { margin: 0 0 10px; font-size: 15px; }
+.deepening-item + .deepening-item { margin-top: 14px; }
+.deepening-item a { display: block; margin: 4px 0; font-weight: 600; }
+.deepening-item p { margin: 4px 0 0; }

@@ -44,3 +44,6 @@ __pycache__/
 # Case documentation - not published
 dockuments/
 tmp/
+
+data/search/
+.playwright-mcp/

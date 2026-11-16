@@ -11,7 +11,7 @@ import (
 	"github.com/horizoonn/alfa-course-recsys/backend/internal/transport/http/generated"
 )
 
-func (h *Handler) Recommend(ctx context.Context, body openapi.RecommendationsRequest) (openapi.RecommendRes, error) {
+func (h *Handler) Recommend(ctx context.Context, body *openapi.RecommendationsRequest) (openapi.RecommendRes, error) {
 	if !h.ready() || h.recommender == nil {
 		result := errorBody(ctx, openapi.ApiErrorCodeDATAUNAVAILABLE, "Подбор временно недоступен.")
 		return &openapi.DataUnavailableHeaders{
@@ -21,34 +21,24 @@ func (h *Handler) Recommend(ctx context.Context, body openapi.RecommendationsReq
 		}, nil
 	}
 	request := recommendation.Request{}
-	var limit openapi.OptRecommendationLimit
-	switch body.Type {
-	case openapi.ColdStartRecommendationsRequestRecommendationsRequest:
-		limit = body.ColdStartRecommendationsRequest.Limit
-	case openapi.ProfileRecommendationsRequestRecommendationsRequest:
-		value := body.ProfileRecommendationsRequest.Profile
-		task, _ := value.TaskID.Get()
-		stage, _ := value.Stage.Get()
-		industry, _ := value.Industry.Get()
-		experience, _ := value.Experience.Get()
-		mode, _ := value.HelpMode.Get()
-		request.Profile = domain.Profile{
-			TaskID:     domain.TaskID(task),
-			Stage:      domain.BusinessStage(stage),
-			Industry:   domain.Industry(industry),
-			Experience: domain.ExperienceLevel(experience),
-			HelpMode:   domain.HelpMode(mode),
-		}
-		limit = body.ProfileRecommendationsRequest.Limit
-	case openapi.DemoRecommendationsRequestRecommendationsRequest:
-		request.DemoProfileID = body.DemoRecommendationsRequest.DemoProfileID
-		limit = body.DemoRecommendationsRequest.Limit
-	default:
-		return nil, &domain.InputError{
-			Fields: []domain.FieldError{{
-				Field: "body", Message: "Неизвестный вариант запроса.",
-			}}}
+	if body.DemoProfileID.Set && (body.Profile.Set || body.Query.Set || body.HistoryProfileID.Set) {
+		return nil, &domain.InputError{Fields: []domain.FieldError{{Field: "body", Message: "Демо-профиль нельзя совмещать со своим профилем или запросом."}}}
 	}
+	request.HistoryProfileID, _ = body.HistoryProfileID.Get()
+	request.Query, _ = body.Query.Get()
+	request.DemoProfileID, _ = body.DemoProfileID.Get()
+	value, _ := body.Profile.Get()
+	task, _ := value.TaskID.Get()
+	stage, _ := value.Stage.Get()
+	industry, _ := value.Industry.Get()
+	experience, _ := value.Experience.Get()
+	mode, _ := value.HelpMode.Get()
+	request.Profile = domain.Profile{
+		TaskID: domain.TaskID(task), Stage: domain.BusinessStage(stage),
+		Industry: domain.Industry(industry), Experience: domain.ExperienceLevel(experience),
+		HelpMode: domain.HelpMode(mode),
+	}
+	limit := body.Limit
 	if limit.Set {
 		request.Limit = int(limit.Value)
 	}
@@ -64,27 +54,7 @@ func (h *Handler) Recommend(ctx context.Context, body openapi.RecommendationsReq
 		Limitations: []openapi.Limitation{},
 	}
 	for _, selected := range result.Items {
-		reasons := make([]openapi.RecommendationReason, 0, len(selected.Reasons))
-		for _, reason := range selected.Reasons {
-			reasons = append(reasons, openapi.RecommendationReason{
-				Code: openapi.RecommendationReasonCode(reason.Code),
-				Text: reason.Text,
-			})
-		}
-		url := openapi.NilString{Null: true}
-		if selected.URL != nil {
-			url = openapi.NewNilString(*selected.URL)
-		}
-		response.Items = append(response.Items, openapi.MaterialCard{
-			MaterialKey: selected.Key.String(),
-			Type:        openapi.MaterialKind(selected.Key.Kind),
-			Title:       selected.Title,
-			SafeSummary: safeSummary(selected.Summary),
-			Access:      openapi.AccessModel(selected.Access),
-			SourceURL:   url,
-			Reasons:     reasons,
-			NextAction:  nextAction(selected),
-		})
+		response.Items = append(response.Items, materialCard(selected))
 	}
 	for _, limitation := range result.Limitations {
 		response.Limitations = append(response.Limitations, openapi.Limitation{
@@ -183,5 +153,29 @@ func nextAction(item recommendation.Item) openapi.NextAction {
 	return openapi.NextAction{
 		Type:  "open_material",
 		Label: label,
+	}
+}
+
+func materialCard(selected recommendation.Item) openapi.MaterialCard {
+	reasons := make([]openapi.RecommendationReason, 0, len(selected.Reasons))
+	for _, reason := range selected.Reasons {
+		reasons = append(reasons, openapi.RecommendationReason{
+			Code: openapi.RecommendationReasonCode(reason.Code),
+			Text: reason.Text,
+		})
+	}
+	url := openapi.NilString{Null: true}
+	if selected.URL != nil {
+		url = openapi.NewNilString(*selected.URL)
+	}
+	return openapi.MaterialCard{
+		MaterialKey: selected.Key.String(),
+		Type:        openapi.MaterialKind(selected.Key.Kind),
+		Title:       selected.Title,
+		SafeSummary: safeSummary(selected.Summary),
+		Access:      openapi.AccessModel(selected.Access),
+		SourceURL:   url,
+		Reasons:     reasons,
+		NextAction:  nextAction(selected),
 	}
 }

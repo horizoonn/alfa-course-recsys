@@ -28,6 +28,8 @@ export type ReasonCode =
   | 'experience_match'
   | 'industry_match'
   | 'history_match'
+  | 'deepening_topic'
+  | 'course_section'
   | 'content_match'
   | 'general_selection'
   | 'broader_topic';
@@ -59,13 +61,15 @@ export interface Limitation {
     | 'BROADER_TOPIC'
     | 'URL_UNVERIFIED'
     | 'NO_MATCHES'
-    | 'PROFILE_INCOMPLETE';
+    | 'PROFILE_INCOMPLETE'
+    | 'QUERY_UNCLEAR'
+    | 'SEMANTIC_UNAVAILABLE';
   message: string;
 }
 
 export type RecommendationsRequest =
-  | { profile?: Profile; demo_profile_id?: never; limit?: number }
-  | { demo_profile_id: string; profile?: never; limit?: number };
+  | { profile?: Profile; query?: string; history_profile_id?: string; demo_profile_id?: never; limit?: number }
+  | { demo_profile_id: string; profile?: never; query?: never; history_profile_id?: never; limit?: number };
 
 export interface RecommendationsResponse {
   items: MaterialCard[];
@@ -101,4 +105,26 @@ export interface ApiErrorResponse {
     message: string;
     fields: { field: string; message: string }[];
   };
+}
+
+export interface HistoryProfile {
+  id: string;
+  title: string;
+  description: string;
+  completed_courses: number;
+  learning_courses: number;
+  positive_ratings: number;
+  negative_ratings: number;
+}
+
+export interface DeepeningContext {
+  query?: string;
+  history_profile_id?: string;
+  demo_profile_id?: string;
+  exclude_keys?: string[];
+}
+
+export interface DeepeningResponse {
+  request_id: string;
+  items: MaterialCard[];
 }

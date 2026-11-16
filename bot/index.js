@@ -211,7 +211,7 @@ function startWebServer() {
   server.listen(PORT, () => {
     console.log(`[web] Mini App и прокси /api на порту ${PORT}`);
     console.log(`[web] адрес приложения: ${WEBAPP_URL || '(WEBAPP_URL не задан)'}`);
-    console.log(`[web] API_TARGET: ${API_TARGET || '(не задан — фронт покажет демо-данные)'}`);
+    console.log(`[web] API_TARGET: ${API_TARGET || '(не задан — запросы /api вернут 502)'}`);
     console.log(`[web] админка: ${ADMIN_TOKEN ? 'включена (/__admin/target)' : 'выключена'}`);
   });
 

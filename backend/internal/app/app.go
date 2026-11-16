@@ -10,11 +10,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/horizoonn/alfa-course-recsys/backend/internal/client/textsearch"
 	"github.com/horizoonn/alfa-course-recsys/backend/internal/config"
 	"github.com/horizoonn/alfa-course-recsys/backend/internal/curation"
 	"github.com/horizoonn/alfa-course-recsys/backend/internal/domain"
 	catalogrepository "github.com/horizoonn/alfa-course-recsys/backend/internal/repository/postgres/catalog"
+	platformhistoryrepository "github.com/horizoonn/alfa-course-recsys/backend/internal/repository/postgres/platformhistory"
 	catalogservice "github.com/horizoonn/alfa-course-recsys/backend/internal/service/catalog"
+	platformhistoryservice "github.com/horizoonn/alfa-course-recsys/backend/internal/service/platformhistory"
 	"github.com/horizoonn/alfa-course-recsys/backend/internal/service/recommendation"
 	httpapi "github.com/horizoonn/alfa-course-recsys/backend/internal/transport/http"
 	"github.com/horizoonn/alfa-course-recsys/backend/platform/postgres"
@@ -43,11 +46,14 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	repository := catalogrepository.NewRepository(txManager.Executor)
 	loader := catalogservice.NewService(repository, txManager)
 	materials, err := loader.Load(startupCtx)
-	pool.Close()
 	if err != nil {
 		return nil, fmt.Errorf("initialize catalog: %w", err)
 	}
-	return appFromMaterials(startupCtx, cfg, logger, materials)
+	historyProfiles, err := platformhistoryservice.NewService(platformhistoryrepository.NewRepository(pool)).Load(startupCtx, materials)
+	if err != nil {
+		return nil, fmt.Errorf("load platform history: %w", err)
+	}
+	return appFromMaterials(startupCtx, cfg, logger, materials, historyProfiles)
 }
 
 func appFromMaterials(
@@ -55,6 +61,7 @@ func appFromMaterials(
 	cfg config.Config,
 	logger *slog.Logger,
 	materials []domain.Material,
+	historyProfiles []domain.HistoryProfile,
 ) (*App, error) {
 	started := time.Now()
 	if err := ctx.Err(); err != nil {
@@ -82,7 +89,11 @@ func appFromMaterials(
 		return nil, fmt.Errorf("initialize text scores: %w", err)
 	}
 	logger.Info("text scores loaded", "documents", len(corpus.Documents), "tasks", len(scores), "duration", time.Since(started))
-	recommender, err := recommendation.NewService(materials, starter, histories, scores)
+	search, err := textsearch.New(cfg.SearchURL, cfg.SearchMode, corpus.ID, cfg.SearchTimeout)
+	if err != nil {
+		return nil, err
+	}
+	recommender, err := recommendation.NewService(materials, starter, histories, scores, search, historyProfiles)
 	if err != nil {
 		return nil, err
 	}

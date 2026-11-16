@@ -28,15 +28,16 @@ type demoCase struct {
 
 func main() {
 	output := flag.String("output", "../data/ranking_catalog.json", "Output file")
+	queries := flag.String("queries", "", "Query scenarios for comparing TF-IDF, E5 and RRF")
 	documentsOnly := flag.Bool("documents-only", false, "Export search input without loading prepared scores")
 	flag.Parse()
-	if err := run(*output, *documentsOnly); err != nil {
+	if err := run(*output, *documentsOnly, *queries); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(output string, documentsOnly bool) error {
+func run(output string, documentsOnly bool, queries string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -63,6 +64,9 @@ func run(output string, documentsOnly bool) error {
 		return err
 	}
 	corpus := recommendation.NewSearchCorpus(materials)
+	if queries != "" {
+		return compareQueries(cfg, materials, corpus, queries, output)
+	}
 	documents := corpus.Documents
 	starter, histories := curated.Active(evidence)
 	var service *recommendation.Service
@@ -71,7 +75,7 @@ func run(output string, documentsOnly bool) error {
 		if err != nil {
 			return err
 		}
-		service, err = recommendation.NewService(materials, starter, histories, scores)
+		service, err = recommendation.NewService(materials, starter, histories, scores, nil, nil)
 		if err != nil {
 			return err
 		}

@@ -2,12 +2,12 @@ FROM golang:1.27.0-bookworm AS build
 WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
-COPY backend/ ./
 COPY api/ ../api/
 ARG OGEN_VERSION=v1.24.0
 RUN go run github.com/ogen-go/ogen/cmd/ogen@${OGEN_VERSION} \
     --clean --config ../api/ogen.yaml \
     --target internal/transport/http/generated --package openapi ../api/openapi.yaml
+COPY backend/ ./
 RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -o /app ./cmd/app
 RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -o /catalog-export ./cmd/catalog-export
 

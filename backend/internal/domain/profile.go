@@ -36,6 +36,7 @@ func (e *InputError) Error() string {
 }
 
 type History struct {
+	Dismissed []MaterialKey
 	Completed []MaterialKey
 	Positive  []MaterialKey
 }

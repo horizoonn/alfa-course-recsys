@@ -40,15 +40,16 @@ export function ErrorState({ message, onRetry, onChangeRequest }: ErrorProps) {
 }
 
 interface EmptyProps {
+  title?: string;
   message: string;
   onChangeRequest: () => void;
 }
 
-export function EmptyState({ message, onChangeRequest }: EmptyProps) {
+export function EmptyState({ message, onChangeRequest, title = 'Подходящих материалов не нашлось' }: EmptyProps) {
   return (
     <div className="screen state">
       <div className="state-icon">🔍</div>
-      <h2>Подходящих материалов не нашлось</h2>
+      <h2>{title}</h2>
       <p className="hint">{message}</p>
       <div className="actions">
         <button className="btn btn-primary" onClick={onChangeRequest}>

@@ -5,11 +5,14 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/horizoonn/alfa-course-recsys/backend/internal/domain"
 	"github.com/horizoonn/alfa-course-recsys/backend/internal/service/recommendation"
 	openapi "github.com/horizoonn/alfa-course-recsys/backend/internal/transport/http/generated"
 )
 
 type Recommender interface {
+	Deepen(context.Context, domain.MaterialKey, recommendation.Request, []domain.MaterialKey) (recommendation.Result, error)
+	HistoryProfiles() []domain.HistoryProfile
 	Recommend(context.Context, recommendation.Request) (recommendation.Result, error)
 }
 

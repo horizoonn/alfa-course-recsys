@@ -1,6 +1,7 @@
 import type { MouseEvent } from 'react';
 import { useTelegram } from '../hooks/useTelegram';
-import type { MaterialCard, MaterialKind } from '../types';
+import Deepening from './Deepening';
+import type { DeepeningContext, MaterialCard, MaterialKind } from '../types';
 
 const TYPE_LABELS: Record<MaterialKind, string> = {
   article: 'Статья',
@@ -24,9 +25,10 @@ interface Props {
   onRefineRequest: () => void;
   position?: number;
   isDemo?: boolean;
+  deepeningContext?: DeepeningContext;
 }
 
-export default function MaterialCardView({ item, onRefineRequest, position, isDemo = false }: Props) {
+export default function MaterialCardView({ item, onRefineRequest, position, isDemo = false, deepeningContext }: Props) {
   const { webApp } = useTelegram();
   const access = ACCESS_LABELS[item.access] ?? ACCESS_LABELS.unknown;
   const typeLabel = TYPE_LABELS[item.type] ?? 'Материал';
@@ -86,6 +88,7 @@ export default function MaterialCardView({ item, onRefineRequest, position, isDe
           </button>
         )}
       </div>
+      {!isDemo && <Deepening materialKey={item.material_key} context={deepeningContext} />}
     </article>
   );
 }

@@ -1,9 +1,11 @@
-import type { RecommendationsResponse } from '../types';
+import type { DeepeningContext, HistoryProfile, RecommendationsResponse } from '../types';
 import MaterialCardView from '../components/MaterialCard';
 import { EmptyState, ErrorState, LoadingState } from '../components/StatusStates';
 
 interface Props {
   result: RecommendationsResponse;
+  historyProfile?: HistoryProfile;
+  deepeningContext?: DeepeningContext;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
@@ -18,7 +20,7 @@ const MODE_LABELS: Record<string, string> = {
   fallback: 'Общая подборка',
 };
 
-export default function Results({ result, loading, error, onRetry, onChangeRequest, isDemo = false }: Props) {
+export default function Results({ result, historyProfile, deepeningContext, loading, error, onRetry, onChangeRequest, isDemo = false }: Props) {
   if (loading) {
     return <LoadingState label="Подбираем материалы…" />;
   }
@@ -31,6 +33,7 @@ export default function Results({ result, loading, error, onRetry, onChangeReque
     const message = result.limitations.map((limitation) => limitation.message).join(' ');
     return (
       <EmptyState
+        title={result.limitations.some((item) => item.code === "QUERY_UNCLEAR") ? "Уточните задачу" : undefined}
         message={message || 'Подходящих материалов не нашлось. Измените запрос.'}
         onChangeRequest={onChangeRequest}
       />
@@ -47,6 +50,7 @@ export default function Results({ result, loading, error, onRetry, onChangeReque
         </button>
         <p className="eyebrow">Альфа Курс · {isDemo ? 'пример подборки' : 'ваш следующий шаг'}</p>
         <h1>Есть с чего начать</h1>
+        {historyProfile && <p className="hint">Сценарий {historyProfile.id}: {historyProfile.title}. Использована обезличенная история из исходной БД.</p>}
         <p className="subtitle">До трёх материалов по вашему запросу. Выберите то, что удобно изучить сейчас.</p>
         <div className="mode-badge" data-mode={result.mode}>
           {modeLabel}
@@ -65,6 +69,7 @@ export default function Results({ result, loading, error, onRetry, onChangeReque
           <MaterialCardView
             key={item.material_key}
             item={item}
+            deepeningContext={{ ...deepeningContext, exclude_keys: result.items.map((card) => card.material_key) }}
             onRefineRequest={onChangeRequest}
             position={index + 1}
             isDemo={isDemo}

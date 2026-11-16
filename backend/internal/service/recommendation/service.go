@@ -6,14 +6,17 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/horizoonn/alfa-course-recsys/backend/internal/domain"
 )
 
 type Request struct {
-	Profile       domain.Profile
-	DemoProfileID string
-	Limit         int
+	HistoryProfileID string
+	Query            string
+	Profile          domain.Profile
+	DemoProfileID    string
+	Limit            int
 }
 
 type Reason struct {
@@ -42,11 +45,13 @@ type Result struct {
 }
 
 type Service struct {
-	materials  []domain.Material
-	byKey      map[domain.MaterialKey]int
-	starter    []domain.MaterialKey
-	histories  map[string]domain.History
-	textScores map[domain.TaskID]map[domain.MaterialKey]float64
+	historyProfiles []domain.HistoryProfile
+	search          TextSearch
+	materials       []domain.Material
+	byKey           map[domain.MaterialKey]int
+	starter         []domain.MaterialKey
+	histories       map[string]domain.History
+	textScores      map[domain.TaskID]map[domain.MaterialKey]float64
 }
 
 type signals struct{ m, s, e, i, h int }
@@ -62,14 +67,24 @@ func NewService(
 	starter []domain.MaterialKey,
 	histories map[string]domain.History,
 	scores TextScores,
+	search TextSearch,
+	profiles []domain.HistoryProfile,
 ) (*Service, error) {
 	service := &Service{
-		materials:  materials,
-		byKey:      map[domain.MaterialKey]int{},
-		starter:    slices.Clone(starter),
-		histories:  histories,
-		textScores: scores,
+		materials:       materials,
+		byKey:           map[domain.MaterialKey]int{},
+		starter:         slices.Clone(starter),
+		histories:       map[string]domain.History{},
+		historyProfiles: slices.Clone(profiles),
+		textScores:      scores,
 	}
+	for id, history := range histories {
+		service.histories[id] = history
+	}
+	for _, profile := range profiles {
+		service.histories[profile.ID] = profile.History
+	}
+	service.search = search
 	for i, material := range materials {
 		if _, ok := service.byKey[material.Key]; ok {
 			return nil, errors.New("duplicate material key in recommendation catalog")
@@ -91,9 +106,13 @@ func (s *Service) recommend(ctx context.Context, request Request, baseline bool)
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
+	request.Query = strings.TrimSpace(request.Query)
+	if utf8.RuneCountInString(request.Query) > 1000 {
+		return Result{}, invalid("query", "Не больше 1000 символов.")
+	}
 	profile := request.Profile
 	if request.DemoProfileID != "" {
-		if profile != (domain.Profile{}) {
+		if profile != (domain.Profile{}) || request.Query != "" || request.HistoryProfileID != "" {
 			return Result{}, invalid("profile", "Профиль и demo_profile_id нельзя передавать вместе.")
 		}
 		found := false
@@ -106,6 +125,11 @@ func (s *Service) recommend(ctx context.Context, request Request, baseline bool)
 		}
 		if !found {
 			return Result{}, invalid("demo_profile_id", "Неизвестный демо-профиль.")
+		}
+	}
+	if request.HistoryProfileID != "" {
+		if !slices.ContainsFunc(s.historyProfiles, func(profile domain.HistoryProfile) bool { return profile.ID == request.HistoryProfileID }) {
+			return Result{}, invalid("history_profile_id", "Неизвестный сценарий истории.")
 		}
 	}
 	if err := profile.Validate(); err != nil {
@@ -122,31 +146,50 @@ func (s *Service) recommend(ctx context.Context, request Request, baseline bool)
 		Items:            []Item{},
 		Mode:             "fallback",
 		Limitations:      []Limitation{},
-		AlgorithmVersion: "content-rules-v2",
+		AlgorithmVersion: "content-rules-v5",
 	}
 	if baseline {
 		result.AlgorithmVersion = "B0"
 	}
-	completed, historyTopics, historyAvailable := s.history(request.DemoProfileID)
+	historyID := request.DemoProfileID
+	if request.HistoryProfileID != "" {
+		historyID = request.HistoryProfileID
+	}
+	completed, historyTopics, historyAvailable := s.history(historyID)
+
 	if request.DemoProfileID == "P10" && !historyAvailable {
 		result.addLimitation("HISTORY_UNAVAILABLE", "Демо-история недоступна для текущего каталога.")
 	}
-	if profile == (domain.Profile{}) {
-		result.Mode = "starter"
-		result.AlgorithmVersion = "starter-v1"
-		result.addLimitation("PROFILE_INCOMPLETE", "Это стартовая подборка. Укажите задачу, чтобы уточнить рекомендации.")
-		seen := map[domain.MaterialKey]bool{}
-		for _, key := range s.starter {
-			index, ok := s.byKey[key]
-			if !ok || seen[key] || completed[key] || s.materials[index].Visibility != domain.VisibilityListed {
-				continue
-			}
-			seen[key] = true
-			result.Items = append(result.Items, item(s.materials[index], []Reason{{"general_selection", "Материал из проверенной стартовой подборки."}}))
-			if len(result.Items) == limit {
-				break
-			}
+	if request.Query != "" {
+		queried, err := s.recommendQuery(ctx, request.Query, profile, completed, historyTopics, limit)
+		if err != nil {
+			return Result{}, err
 		}
+		for _, limitation := range result.Limitations {
+			queried.addLimitation(limitation.Code, limitation.Message)
+		}
+		return queried, nil
+	}
+	if profile.TaskID == "" {
+		items, contextUsed, err := s.general(ctx, profile, completed, historyTopics, baseline, limit)
+		if err != nil {
+			return Result{}, err
+		}
+		result.Items = items
+		message := "Для заполненных полей нет подтверждённых совпадений. Показана общая подборка; выберите задачу."
+		if profile == (domain.Profile{}) && contextUsed {
+			result.Mode = "personalized"
+			message = "Учтены темы из вашей истории. Укажите текущую задачу, чтобы уточнить подборку."
+		} else if profile == (domain.Profile{}) {
+			result.Mode = "starter"
+			result.AlgorithmVersion = "starter-v2"
+			message = "Это общая стартовая подборка. Выберите задачу, чтобы уточнить рекомендации."
+		} else if contextUsed {
+			message = "Задача не указана. Учтены доступные совпадения профиля; выберите задачу, чтобы уточнить рекомендации."
+		} else if baseline {
+			message = "Задача не указана. Показана общая подборка; выберите задачу."
+		}
+		result.addLimitation("PROFILE_INCOMPLETE", message)
 	} else {
 		ranked := []candidate{}
 		for i, material := range s.materials {
@@ -165,16 +208,10 @@ func (s *Service) recommend(ctx context.Context, request Request, baseline bool)
 			if baseline {
 				lexical = 0
 			}
-			if profile.TaskID != "" && t == 0 && lexical < minimumTextScore {
+			if t == 0 && lexical < minimumTextScore {
 				continue
 			}
-			relevance := lexical
-			if t == 1 {
-				relevance = 0.25 + 0.5*lexical
-			}
-			if t == 2 {
-				relevance = 0.75 + 0.25*lexical
-			}
+			relevance := relevanceScore(t, lexical)
 			context := float64(2*match.m + match.s + match.e + match.i + match.h)
 			c := candidate{
 				index:   i,
@@ -185,31 +222,11 @@ func (s *Service) recommend(ctx context.Context, request Request, baseline bool)
 			if baseline {
 				c.score = 0
 			}
-			if profile.TaskID == "" {
-				c.score = context
-			}
 
 			ranked = append(ranked, c)
 		}
-		slices.SortFunc(ranked, func(a, b candidate) int {
-			if baseline && a.t != b.t {
-				return b.t - a.t
-			}
-			if !baseline && (a.t == 2) != (b.t == 2) {
-				if a.t == 2 {
-					return -1
-				}
-				return 1
-			}
-			if a.score > b.score {
-				return -1
-			}
-			if a.score < b.score {
-				return 1
-			}
+		s.sortCandidates(ranked, baseline)
 
-			return compareKeys(s.materials[a.index].Key, s.materials[b.index].Key)
-		})
 		direct, contextUsed, contentUsed := false, false, false
 		seenCards := map[string]bool{}
 		for _, candidate := range ranked {
@@ -237,10 +254,7 @@ func (s *Service) recommend(ctx context.Context, request Request, baseline bool)
 				break
 			}
 		}
-		if profile.TaskID == "" {
-			result.addLimitation("PROFILE_INCOMPLETE", "Задача не указана. Показана общая подборка по доступным признакам.")
-		}
-		if direct || (contentUsed && profile.TaskID != "") {
+		if direct || contentUsed {
 			result.Mode = "topic"
 			if contextUsed {
 				result.Mode = "personalized"
@@ -249,6 +263,9 @@ func (s *Service) recommend(ctx context.Context, request Request, baseline bool)
 	}
 	if len(result.Items) == 0 {
 		result.Mode = "fallback"
+		result.Limitations = slices.DeleteFunc(result.Limitations, func(l Limitation) bool {
+			return l.Code == "PROFILE_INCOMPLETE"
+		})
 		result.addLimitation("NO_MATCHES", "Подходящих материалов не нашлось. Попробуйте изменить запрос.")
 	}
 	for _, selected := range result.Items {
@@ -267,16 +284,16 @@ func (s *Service) history(demo string) (map[domain.MaterialKey]bool, map[string]
 		return completed, topics, false
 	}
 	keys := append(slices.Clone(history.Completed), history.Positive...)
-	if len(keys) == 0 {
+	if len(keys) == 0 && len(history.Dismissed) == 0 {
 		return completed, topics, false
 	}
-	for _, key := range keys {
+	for _, key := range append(slices.Clone(keys), history.Dismissed...) {
 		index, exists := s.byKey[key]
 		if !exists || s.materials[index].Visibility != domain.VisibilityListed {
 			return map[domain.MaterialKey]bool{}, map[string]bool{}, false
 		}
 	}
-	for _, key := range history.Completed {
+	for _, key := range append(slices.Clone(history.Completed), history.Dismissed...) {
 		completed[key] = true
 	}
 	for _, key := range keys {
@@ -361,7 +378,7 @@ func reasonsFor(material domain.Material, profile domain.Profile, candidate cand
 		reasons = append(reasons, Reason{"industry_match", "Соответствует выбранной сфере бизнеса."})
 	}
 	if matched.h > 0 {
-		reasons = append(reasons, Reason{"history_match", "Совпадает с темами демо-истории обучения."})
+		reasons = append(reasons, Reason{"history_match", "Связано с темами материалов из истории обучения и положительных действий."})
 	}
 	return reasons
 }
@@ -393,3 +410,38 @@ func compareKeys(a, b domain.MaterialKey) int {
 	}
 	return 0
 }
+
+func (s *Service) sortCandidates(ranked []candidate, baseline bool) {
+	slices.SortFunc(ranked, func(a, b candidate) int {
+		if baseline && a.t != b.t {
+			return b.t - a.t
+		}
+		if !baseline && (a.t == 2) != (b.t == 2) {
+			if a.t == 2 {
+				return -1
+			}
+			return 1
+		}
+		if a.score > b.score {
+			return -1
+		}
+		if a.score < b.score {
+			return 1
+		}
+
+		return compareKeys(s.materials[a.index].Key, s.materials[b.index].Key)
+	})
+}
+
+func relevanceScore(taskMatch int, textScore float64) float64 {
+	switch taskMatch {
+	case 2:
+		return 0.75 + 0.25*textScore
+	case 1:
+		return 0.25 + 0.5*textScore
+	default:
+		return textScore
+	}
+}
+
+func (s *Service) HistoryProfiles() []domain.HistoryProfile { return slices.Clone(s.historyProfiles) }

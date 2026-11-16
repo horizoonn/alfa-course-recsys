@@ -13,6 +13,9 @@ import (
 )
 
 type Config struct {
+	SearchURL       string
+	SearchMode      string
+	SearchTimeout   time.Duration
 	DatabaseURL     string
 	CurationPath    string
 	TextScoresPath  string
@@ -27,6 +30,8 @@ func Load() (Config, error) {
 	}
 	cfg := Config{
 		DatabaseURL:    os.Getenv("DATABASE_URL"),
+		SearchURL:      "http://127.0.0.1:8090",
+		SearchMode:     "tfidf",
 		HTTPAddr:       "127.0.0.1:8080",
 		CurationPath:   "../data/catalog_curation.json",
 		TextScoresPath: "../data/ranking_text_scores.json",
@@ -40,7 +45,17 @@ func Load() (Config, error) {
 	if value, ok := os.LookupEnv("TEXT_SCORES_PATH"); ok {
 		cfg.TextScoresPath = value
 	}
+	if value, ok := os.LookupEnv("TEXT_SEARCH_URL"); ok {
+		cfg.SearchURL = value
+	}
+	if value, ok := os.LookupEnv("TEXT_SEARCH_MODE"); ok {
+		cfg.SearchMode = value
+	}
 	var err error
+	cfg.SearchTimeout, err = duration("TEXT_SEARCH_TIMEOUT", 2*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
 	cfg.StartupTimeout, err = duration("STARTUP_TIMEOUT", 30*time.Second)
 	if err != nil {
 		return Config{}, err

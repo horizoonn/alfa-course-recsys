@@ -10,6 +10,7 @@ import (
 	"github.com/ogen-go/ogen/ogenerrors"
 
 	"github.com/horizoonn/alfa-course-recsys/backend/internal/domain"
+	"github.com/horizoonn/alfa-course-recsys/backend/internal/service/recommendation"
 	openapi "github.com/horizoonn/alfa-course-recsys/backend/internal/transport/http/generated"
 )
 
@@ -30,6 +31,13 @@ func internalError(ctx context.Context) *openapi.UnexpectedErrorStatusCodeWithHe
 }
 
 func (h *Handler) NewError(ctx context.Context, err error) *openapi.UnexpectedErrorStatusCodeWithHeaders {
+	if errors.Is(err, recommendation.ErrSearchUnavailable) {
+		response := internalError(ctx)
+		response.StatusCode = http.StatusServiceUnavailable
+		response.Response.Error.Code = openapi.ApiErrorCodeDATAUNAVAILABLE
+		response.Response.Error.Message = "Сервис временно недоступен. Повторите запрос или выберите тему."
+		return response
+	}
 	var invalid *domain.InputError
 	if errors.As(err, &invalid) {
 		response := internalError(ctx)

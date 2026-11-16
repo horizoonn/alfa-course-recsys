@@ -37,7 +37,7 @@ func (h *Handler) middleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(ctx))
 		path := r.URL.Path
 		switch path {
-		case "/api/meta", "/api/demo-profiles", "/api/health", "/api/recommendations":
+		case "/api/meta", "/api/demo-profiles", "/api/history-profiles", "/api/health", "/api/recommendations", "/api/deepening":
 		default:
 			path = "unmatched"
 		}

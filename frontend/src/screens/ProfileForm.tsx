@@ -1,16 +1,19 @@
 import { useState } from 'react';
 import type { ChangeEvent } from 'react';
-import type { DemoProfile, MetaResponse, Profile } from '../types';
+import type { DemoProfile, HistoryProfile, MetaResponse, Profile } from '../types';
 import { useTelegram } from '../hooks/useTelegram';
 
 interface Props {
   meta: MetaResponse;
   demoProfiles: DemoProfile[];
+  historyProfiles: HistoryProfile[];
+  initialHistoryProfileId?: string;
+  initialQuery?: string;
   initialProfile?: Profile;
   initialDemoProfileId?: string;
   loading: boolean;
   error: string | null;
-  onSubmit: (profile: Profile, demoProfileId?: string) => void;
+  onSubmit: (profile: Profile, demoProfileId?: string, query?: string, historyProfileId?: string) => void;
 }
 
 const NOT_SET = '';
@@ -18,6 +21,9 @@ const NOT_SET = '';
 export default function ProfileForm({
   meta,
   demoProfiles,
+  historyProfiles,
+  initialHistoryProfileId,
+  initialQuery,
   initialProfile,
   initialDemoProfileId,
   loading,
@@ -29,6 +35,8 @@ export default function ProfileForm({
   const [profile, setProfile] = useState<Profile>(() => ({
     ...(initialDemo?.profile ?? initialProfile ?? {}),
   }));
+  const [query, setQuery] = useState(initialQuery ?? "");
+  const [historyProfileId, setHistoryProfileId] = useState(initialHistoryProfileId ?? NOT_SET);
   const [demoProfileId, setDemoProfileId] = useState(initialDemo?.id ?? NOT_SET);
 
   const update =
@@ -36,10 +44,13 @@ export default function ProfileForm({
     (e: ChangeEvent<HTMLSelectElement>) => {
       const value = e.target.value || null;
       setDemoProfileId(NOT_SET);
+      if (field === "task_id") setQuery("");
       setProfile((p) => ({ ...p, [field]: value }));
     };
 
   const handleDemoChange = (e: ChangeEvent<HTMLSelectElement>) => {
+    setQuery("");
+    setHistoryProfileId(NOT_SET);
     const demo = demoProfiles.find((item) => item.id === e.target.value);
     setDemoProfileId(demo?.id ?? NOT_SET);
     if (demo) setProfile({ ...demo.profile });
@@ -48,11 +59,13 @@ export default function ProfileForm({
     if (demoProfileId) {
       onSubmit({}, demoProfileId);
     } else {
-      onSubmit(profile);
+      onSubmit(profile, undefined, query, historyProfileId || undefined);
     }
   };
 
   const skipAll = () => {
+    setQuery("");
+    setHistoryProfileId(NOT_SET);
     setProfile({});
     setDemoProfileId(NOT_SET);
     onSubmit({});
@@ -90,7 +103,14 @@ export default function ProfileForm({
       <form onSubmit={(event) => { event.preventDefault(); submit(); }} aria-busy={loading}>
         <section className="section main-section">
           <div className="section-heading"><span className="step-number">01</span><h2 className="section-title">Что хотите решить?</h2></div>
-          {renderSelect('task_id', 'Задача', meta.tasks)}
+          <div className="field">
+            <label className="field-label" htmlFor="business-query">Опишите задачу своими словами</label>
+            <textarea id="business-query" maxLength={1000} rows={4} value={query} disabled={loading} placeholder="Например: покупатели приходят один раз и больше не возвращаются" onChange={(event) => {
+              setQuery(event.target.value); setDemoProfileId(NOT_SET); setProfile((value) => ({ ...value, task_id: null }));
+            }} />
+            <span className="hint">{query.length}/1000</span>
+          </div>
+          {renderSelect('task_id', 'Или выберите тему', meta.tasks)}
           <fieldset className="format-fieldset" disabled={loading}>
             <legend className="field-label">Как вам удобнее?</legend>
             <div className="format-options">
@@ -135,6 +155,17 @@ export default function ProfileForm({
         <p className="privacy-note">Без регистрации. Можно пропустить любое поле.</p>
       </form>
 
+      {historyProfiles.length > 0 && <details className="examples">
+        <summary>История из базы Альфа-Курса</summary>
+        <p className="hint">Обезличенные сценарии реального обучения для проверки. Это не история вашего аккаунта.</p>
+        <div className="field"><label className="field-label" htmlFor="history-profile">Сценарий истории</label>
+          <select id="history-profile" value={historyProfileId} disabled={loading} onChange={(event) => { setHistoryProfileId(event.target.value); setDemoProfileId(NOT_SET); }}>
+            <option value={NOT_SET}>Без сценария из базы</option>
+            {historyProfiles.map((item) => <option key={item.id} value={item.id}>{item.id} — {item.title}</option>)}
+          </select>
+        </div>
+        {historyProfileId && <p className="hint">{historyProfiles.find((item) => item.id === historyProfileId)?.description}</p>}
+      </details>}
       {demoProfiles.length > 0 && (
         <details className="examples" open={demoProfileId ? true : undefined}>
           <summary>Попробовать на примере</summary>

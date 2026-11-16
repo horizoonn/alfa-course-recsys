@@ -66,6 +66,9 @@ services:
       SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT}
       CATALOG_CURATION_PATH: /data/catalog_curation.json
       TEXT_SCORES_PATH: /data/ranking_text_scores.json
+      TEXT_SEARCH_URL: http://text-search:8090
+      TEXT_SEARCH_MODE: ${TEXT_SEARCH_MODE}
+      TEXT_SEARCH_TIMEOUT: ${TEXT_SEARCH_TIMEOUT}
     volumes:
       - type: bind
         source: ./data
@@ -76,8 +79,8 @@ services:
     ports:
       - "127.0.0.1:${APP_PORT}:8080"
     depends_on:
-      text-prepare:
-        condition: service_completed_successfully
+      text-search:
+        condition: service_healthy
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/api/health]
       interval: 5s
@@ -98,6 +101,9 @@ services:
       DATABASE_URL: ${DATABASE_URL_DOCKER}
       CATALOG_CURATION_PATH: /data/catalog_curation.json
       TEXT_SCORES_PATH: /data/ranking_text_scores.json
+      TEXT_SEARCH_URL: http://text-search:8090
+      TEXT_SEARCH_MODE: ${TEXT_SEARCH_MODE}
+      TEXT_SEARCH_TIMEOUT: ${TEXT_SEARCH_TIMEOUT}
     command: [--documents-only, --output, /data/ranking_catalog.json]
     volumes:
       - type: bind
@@ -114,7 +120,9 @@ services:
     pull_policy: build
     build: ./ranking
     user: "${LOCAL_UID}:${LOCAL_GID}"
-    network_mode: none
+    environment:
+      SEARCH_MODEL_TIMEOUT: ${SEARCH_MODEL_TIMEOUT}
+      SEARCH_ENABLE_SEMANTIC: ${SEARCH_ENABLE_SEMANTIC}
     volumes:
       - type: bind
         source: ./data
@@ -125,6 +133,34 @@ services:
       catalog-export:
         condition: service_completed_successfully
     restart: "no"
+
+  text-search:
+    pull_policy: build
+    build: ./ranking
+    user: "${LOCAL_UID}:${LOCAL_GID}"
+    command: [-m, uvicorn, search_api:app, --host, 0.0.0.0, --port, "8090", --workers, "1", --no-access-log]
+    environment:
+      SEARCH_INDEX_PATH: /data/search
+      SEARCH_ENABLE_SEMANTIC: ${SEARCH_ENABLE_SEMANTIC}
+      HF_HUB_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+    volumes:
+      - type: bind
+        source: ./data
+        target: /data
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      text-prepare:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
 
   frontend:
     pull_policy: build

@@ -156,6 +156,76 @@ paths:
                 $ref: '#/components/examples/DemoRequest'
               PartialRequest:
                 $ref: '#/components/examples/PartialRequest'
+  /api/deepening:
+    post:
+      operationId: Deepen
+      tags:
+        - Recommendations
+      summary: Подобрать углубление темы материала
+      description: До двух материалов, продолжающих тему исходного. Пустой items означает отсутствие подтверждённого углубления.
+      responses:
+        '200':
+          description: Подборка материалов. При отсутствии совпадений items пуст.
+          headers:
+            X-Request-Id:
+              description: Идентификатор запроса.
+              schema:
+                $ref: '#/components/schemas/RequestId'
+            Cache-Control:
+              description: Запрет кеширования ответа.
+              schema:
+                type: string
+                enum:
+                  - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeepeningResponse'
+        '503':
+          $ref: '#/components/responses/DataUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/InvalidInput'
+        default:
+          $ref: '#/components/responses/UnexpectedError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeepeningRequest'
+  /api/history-profiles:
+    get:
+      operationId: ListHistoryProfiles
+      tags:
+        - Metadata
+      summary: Получить сценарии истории Альфа-Курса
+      description: Обезличенные сценарии реальной истории обучения и оценок из исходной БД. Не являются авторизацией текущего посетителя.
+      responses:
+        '200':
+          description: Обезличенные сценарии истории.
+          headers:
+            X-Request-Id:
+              description: Идентификатор запроса.
+              schema:
+                $ref: '#/components/schemas/RequestId'
+            Cache-Control:
+              description: Запрет кеширования ответа.
+              schema:
+                type: string
+                enum:
+                  - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoryProfilesResponse'
+        '503':
+          $ref: '#/components/responses/DataUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        default:
+          $ref: '#/components/responses/UnexpectedError'
   /api/demo-profiles:
     get:
       operationId: ListDemoProfiles
@@ -239,8 +309,36 @@ paths:
           $ref: '#/components/responses/InternalError'
         default:
           $ref: '#/components/responses/UnexpectedError'
+
 components:
   schemas:
+    HistoryProfile:
+      type: object
+      additionalProperties: false
+      required: [id, title, description, completed_courses, learning_courses, positive_ratings, negative_ratings]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        completed_courses:
+          type: integer
+          minimum: 0
+        learning_courses:
+          type: integer
+          minimum: 0
+        positive_ratings:
+          type: integer
+          minimum: 0
+        negative_ratings:
+          type: integer
+          minimum: 0
+    HistoryProfilesResponse:
+      type: array
+      items:
+        $ref: '#/components/schemas/HistoryProfile'
     RequestId:
       type: string
       format: uuid
@@ -286,35 +384,68 @@ components:
             - null
       description: Все поля необязательны. Отсутствие поля или null означает, что значение неизвестно.
         Коды берутся из /api/meta.
-    ProfileRecommendationsRequest:
+    DeepeningRequest:
       type: object
       additionalProperties: false
+      required: [material_key]
       properties:
+        material_key:
+          type: string
+          minLength: 1
+          maxLength: 80
+        query:
+          type: string
+          maxLength: 1000
+          description: Исходный запрос для сохранения ограничений доступа и формата.
+        history_profile_id:
+          type: string
+          pattern: ^H0[1-3]$
+        demo_profile_id:
+          type: string
+          pattern: ^P(?:0[1-9]|10)$
+        exclude_keys:
+          type: array
+          maxItems: 3
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 80
+          description: Остальные карточки исходной подборки, которые не нужно дублировать.
+    DeepeningResponse:
+      type: object
+      additionalProperties: false
+      required: [request_id, items]
+      properties:
+        request_id:
+          $ref: '#/components/schemas/RequestId'
+        items:
+          type: array
+          maxItems: 2
+          items:
+            $ref: '#/components/schemas/MaterialCard'
+    RecommendationsRequest:
+      type: object
+      additionalProperties: false
+      description: Запрос и необязательный профиль либо demo_profile_id. Демо нельзя совмещать со своим вводом. Пустой объект включает холодный старт.
+      properties:
+        history_profile_id:
+          type: string
+          pattern: ^H0[1-3]$
+          description: Явно выбранный обезличенный сценарий реальной истории. Допускается вместе с query и profile.
+
         profile:
           $ref: '#/components/schemas/Profile'
-        limit:
-          $ref: '#/components/schemas/RecommendationLimit'
-      required:
-        - profile
-    DemoRecommendationsRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - demo_profile_id
-      properties:
+        query:
+          type: string
+          maxLength: 1000
+          description: Описание задачи. Непустой запрос имеет приоритет над task_id.
         demo_profile_id:
           type: string
           minLength: 1
           pattern: ^P(?:0[1-9]|10)$
         limit:
           $ref: '#/components/schemas/RecommendationLimit'
-    RecommendationsRequest:
-      description: Профиль или demo_profile_id. Совместная передача запрещена. {} и {"profile":{}} включают
-        холодный старт.
-      oneOf:
-        - $ref: '#/components/schemas/ColdStartRecommendationsRequest'
-        - $ref: '#/components/schemas/ProfileRecommendationsRequest'
-        - $ref: '#/components/schemas/DemoRecommendationsRequest'
     MaterialKind:
       type: string
       enum:
@@ -359,6 +490,8 @@ components:
             - experience_match
             - industry_match
             - history_match
+            - deepening_topic
+            - course_section
             - content_match
             - general_selection
             - broader_topic
@@ -397,6 +530,8 @@ components:
             - URL_UNVERIFIED
             - NO_MATCHES
             - PROFILE_INCOMPLETE
+            - QUERY_UNCLEAR
+            - SEMANTIC_UNAVAILABLE
         message:
           type: string
           minLength: 1
@@ -457,6 +592,7 @@ components:
         - items
         - limitations
       properties:
+
         request_id:
           $ref: '#/components/schemas/RequestId'
         mode:
@@ -606,12 +742,7 @@ components:
           $ref: '#/components/schemas/RequestId'
         error:
           $ref: '#/components/schemas/ApiError'
-    ColdStartRecommendationsRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        limit:
-          $ref: '#/components/schemas/RecommendationLimit'
+
   responses:
     InvalidInput:
       description: Неверный JSON, поля, коды или limit. Профиль и demo_profile_id переданы вместе.
