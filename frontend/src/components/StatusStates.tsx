@@ -4,7 +4,7 @@ interface LoadingProps {
 
 export function LoadingState({ label = 'Загрузка…' }: LoadingProps) {
   return (
-    <div className="screen state">
+    <div className="screen state" role="status" aria-live="polite">
       <div className="spinner" aria-hidden />
       <p className="hint">{label}</p>
     </div>
@@ -19,7 +19,7 @@ interface ErrorProps {
 
 export function ErrorState({ message, onRetry, onChangeRequest }: ErrorProps) {
   return (
-    <div className="screen state">
+    <div className="screen state" role="alert">
       <div className="state-icon">⚠️</div>
       <h2>Что-то пошло не так</h2>
       <p className="hint">{message}</p>
